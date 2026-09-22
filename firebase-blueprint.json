@@ -1,0 +1,143 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Registered movement member profile and verified environmental impact metrics.",
+      "type": "object",
+      "properties": {
+        "fullName": { "type": "string", "maxLength": 100 },
+        "email": { "type": "string", "maxLength": 120 },
+        "role": { "type": "string", "enum": ["TOP_ADMIN", "ADMIN", "REGISTERED_USER"] },
+        "accountStatus": { "type": "string", "enum": ["ACTIVE", "INACTIVE", "SUSPENDED"] },
+        "createdAt": { "type": "string" },
+        "verifiedActionsCount": { "type": "number" },
+        "verifiedPoints": { "type": "number" },
+        "verifiedReusableBagUses": { "type": "number" },
+        "verifiedBagsAvoided": { "type": "number" },
+        "verifiedCo2eAvoidedGramsMin": { "type": "number" },
+        "verifiedCo2eAvoidedGramsMax": { "type": "number" }
+      },
+      "required": ["fullName", "email", "role", "accountStatus", "createdAt"]
+    },
+    "ProofSubmission": {
+      "title": "ProofSubmission",
+      "description": "User submitted evidence of environmental reusable bag or refusal action.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "userName": { "type": "string", "maxLength": 100 },
+        "userEmail": { "type": "string", "maxLength": 120 },
+        "actionType": { "type": "string", "enum": ["USED_REUSABLE_BAG", "REFUSED_SINGLE_USE_BAG", "OTHER_ENVIRONMENTAL_ACTION"] },
+        "description": { "type": "string", "maxLength": 2000 },
+        "evidenceUrl": { "type": "string", "maxLength": 5000000 },
+        "submittedAt": { "type": "string" },
+        "status": { "type": "string", "enum": ["PENDING", "APPROVED", "REJECTED"] },
+        "reviewedBy": { "type": "string", "maxLength": 128 },
+        "reviewedAt": { "type": "string" },
+        "reviewNote": { "type": "string", "maxLength": 1000 },
+        "pointsAwarded": { "type": "number" },
+        "bagsAvoided": { "type": "number" },
+        "co2eGramsMin": { "type": "number" },
+        "co2eGramsMax": { "type": "number" }
+      },
+      "required": ["userId", "actionType", "description", "submittedAt", "status"]
+    },
+    "Challenge": {
+      "title": "Challenge",
+      "description": "Environmental movement campaigns configured by Top Admins.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "maxLength": 200 },
+        "description": { "type": "string", "maxLength": 5000 },
+        "startDate": { "type": "string" },
+        "endDate": { "type": "string" },
+        "rules": { "type": "array" },
+        "requiredActions": { "type": "array" },
+        "pointsReward": { "type": "number" },
+        "eligibilityRequirements": { "type": "string", "maxLength": 1000 },
+        "status": { "type": "string", "enum": ["ACTIVE", "UPCOMING", "COMPLETED", "INACTIVE"] },
+        "createdAt": { "type": "string" },
+        "createdBy": { "type": "string" }
+      },
+      "required": ["title", "description", "status", "pointsReward"]
+    },
+    "Prize": {
+      "title": "Prize",
+      "description": "Official movement prizes and reward campaigns.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "maxLength": 200 },
+        "description": { "type": "string", "maxLength": 2000 },
+        "value": { "type": "string", "maxLength": 100 },
+        "eligibility": { "type": "string", "maxLength": 1000 },
+        "competitionPeriod": { "type": "string", "maxLength": 200 },
+        "status": { "type": "string", "enum": ["ACTIVE", "UPCOMING", "CONCLUDED", "INACTIVE"] },
+        "winnerInfo": { "type": "string", "maxLength": 200 },
+        "paymentStatus": { "type": "string", "enum": ["PENDING", "PAID", "NOT_APPLICABLE"] }
+      },
+      "required": ["title", "value", "status"]
+    },
+    "AdminRecord": {
+      "title": "AdminRecord",
+      "description": "Designated administrator permissions record.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 120 },
+        "name": { "type": "string", "maxLength": 100 },
+        "role": { "type": "string", "enum": ["TOP_ADMIN", "ADMIN"] },
+        "status": { "type": "string", "enum": ["ACTIVE", "INACTIVE"] },
+        "createdAt": { "type": "string" },
+        "createdBy": { "type": "string" }
+      },
+      "required": ["userId", "email", "role", "status"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Immutable administrative audit trail.",
+      "type": "object",
+      "properties": {
+        "adminId": { "type": "string", "maxLength": 128 },
+        "adminEmail": { "type": "string", "maxLength": 120 },
+        "action": { "type": "string", "maxLength": 100 },
+        "targetId": { "type": "string", "maxLength": 128 },
+        "targetType": { "type": "string", "maxLength": 50 },
+        "details": { "type": "string", "maxLength": 3000 },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["adminId", "adminEmail", "action", "details", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles and aggregate verified metrics."
+    },
+    "/submissions/{submissionId}": {
+      "schema": "ProofSubmission",
+      "description": "Submitted environmental evidence and administrative review records."
+    },
+    "/challenges/{challengeId}": {
+      "schema": "Challenge",
+      "description": "Campaign challenges."
+    },
+    "/prizes/{prizeId}": {
+      "schema": "Prize",
+      "description": "Movement prize declarations."
+    },
+    "/admins/{adminId}": {
+      "schema": "AdminRecord",
+      "description": "Authorized administrative authority mappings."
+    },
+    "/auditLogs/{logId}": {
+      "schema": "AuditLog",
+      "description": "System administrative audit log records."
+    },
+    "/communityPosts/{postId}": {
+      "description": "Community discourse and movement updates."
+    },
+    "/settings/{settingId}": {
+      "description": "Organizational, impact calculation, and payment settings."
+    }
+  }
+}

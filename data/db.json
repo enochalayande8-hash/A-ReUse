@@ -1,0 +1,68 @@
+{
+  "users": [],
+  "sessions": [],
+  "submissions": [],
+  "challenges": [],
+  "prizes": [],
+  "auditLogs": [],
+  "communityPosts": [],
+  "impactSettings": {
+    "bagsInOneReusable": 10,
+    "co2eMinGramsPerBag": 15,
+    "co2eMaxGramsPerBag": 33,
+    "pointsPerApprovedAction": 10,
+    "updatedAt": "2026-09-21T00:00:00.000Z",
+    "updatedBy": "SYSTEM"
+  },
+  "organizationProfile": {
+    "orgName": "Awareness Global",
+    "movementName": "Awareness Global Movement",
+    "slogan": "Stay Aware",
+    "pillars": "Educate. Unite. Act.",
+    "mission": "Unite the world through awareness to help solve global issues.",
+    "description": "An environmental behavioral-change movement under Awareness Global dedicated to eradicating single-use plastic bag consumption through reusable alternatives and verified community action.",
+    "contactEmail": "movement@awarenessglobal.org",
+    "phone": "+1 (800) 555-AWARE",
+    "website": "https://sites.google.com/view/awarenessglobal/home",
+    "location": "Global/ Lagos",
+    "socialLinks": {
+      "facebook": "https://facebook.com/AwarenessGlobal",
+      "twitter": "https://twitter.com/AwarenessGlobal",
+      "instagram": "https://instagram.com/AwarenessGlobal",
+      "linkedin": "https://linkedin.com/company/awarenessglobal"
+    },
+    "updatedAt": "2026-09-21T00:00:00.000Z",
+    "updatedBy": "SYSTEM"
+  },
+  "paymentSettings": {
+    "accountName": "Awareness Global Foundation",
+    "bankOrProvider": "Global Impact Banking Corp",
+    "accountNumber": "••••••••8942",
+    "privateNotes": "Official NGO treasury account for environmental campaign disbursements and grants.",
+    "publicInstructions": "Awareness Global accepts verified campaign sponsorships and institutional grants. Contact movement@awarenessglobal.org for verified donor verification.",
+    "publicSupportNotice": "All campaign prizes and grants are verified and authorized exclusively by authorized Top Administrators.",
+    "updatedAt": "2026-09-21T00:00:00.000Z",
+    "updatedBy": "SYSTEM"
+  },
+  "orgProfile": {
+    "orgName": "Awareness Global",
+    "movementName": "Awareness Global Movement",
+    "slogan": "Stay Aware",
+    "pillars": "Educate. Unite. Act.",
+    "mission": "Unite the world through awareness to help solve global issues.",
+    "description": "An environmental behavioral-change movement under Awareness Global dedicated to eradicating single-use plastic bag consumption through reusable alternatives and verified community action.",
+    "contactEmail": "movement@awarenessglobal.org",
+    "phone": "+1 (800) 555-AWARE",
+    "website": "https://sites.google.com/view/awarenessglobal/home",
+    "location": "Global/ Lagos",
+    "socialLinks": {
+      "facebook": "https://facebook.com/AwarenessGlobal",
+      "twitter": "https://twitter.com/AwarenessGlobal",
+      "instagram": "https://instagram.com/AwarenessGlobal",
+      "linkedin": "https://linkedin.com/company/awarenessglobal"
+    },
+    "updatedAt": "2026-09-21T18:51:43.835Z",
+    "updatedBy": "SYSTEM"
+  },
+  "admins": []
+}

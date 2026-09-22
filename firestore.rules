@@ -1,0 +1,143 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default Deny Catch-All: No unprotected read or write allowed
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Designated initial Top Admin Firebase UID
+    function isInitialTopAdminUid() {
+      return isSignedIn() && request.auth.uid == 'Bo6cQS55HedBDEADJtcdTyaHqNa2';
+    }
+
+    // TOP_ADMIN role check using Firebase Auth Custom Claims,
+    // with restricted initial Top Admin UID enforcement and active admin roster verification
+    function isTopAdmin() {
+      return isSignedIn() && (
+        (request.auth.token.role == 'TOP_ADMIN' && isInitialTopAdminUid()) ||
+        (request.auth.token.role == 'TOP_ADMIN' &&
+         exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == 'TOP_ADMIN' &&
+         get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.status == 'ACTIVE') ||
+        (exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == 'TOP_ADMIN' &&
+         get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.status == 'ACTIVE')
+      );
+    }
+
+    // ADMIN role check
+    function isAdmin() {
+      return isTopAdmin() || (
+        isSignedIn() && (
+          request.auth.token.role == 'ADMIN' ||
+          (exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.status == 'ACTIVE')
+        )
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Users Collection
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      // Regular users cannot set their own role, points, or impact metrics
+      allow create: if isOwner(userId) &&
+        request.resource.data.role == 'REGISTERED_USER' &&
+        request.resource.data.verifiedPoints == 0 &&
+        request.resource.data.verifiedActionsCount == 0 &&
+        (!('verifiedReusableBagUses' in request.resource.data) || request.resource.data.verifiedReusableBagUses == 0) &&
+        (!('verifiedBagsAvoided' in request.resource.data) || request.resource.data.verifiedBagsAvoided == 0) &&
+        (!('verifiedCo2eAvoidedGramsMin' in request.resource.data) || request.resource.data.verifiedCo2eAvoidedGramsMin == 0) &&
+        (!('verifiedCo2eAvoidedGramsMax' in request.resource.data) || request.resource.data.verifiedCo2eAvoidedGramsMax == 0);
+      // Users can ONLY edit basic profile fields (fullName, profileImageUrl)
+      allow update: if (isOwner(userId) &&
+        request.resource.data.role == resource.data.role &&
+        request.resource.data.verifiedPoints == resource.data.verifiedPoints &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fullName', 'profileImageUrl']))
+        || isAdmin();
+      allow delete: if isTopAdmin();
+    }
+
+    // Proof Submissions Collection
+    // Fields: proofId, userId, actionType, description, evidenceUrl, submittedAt, status, reviewedBy, reviewedAt, reviewNote, pointsAwarded
+    match /submissions/{submissionId} {
+      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (
+        (resource.data.userId == request.auth.uid) || isAdmin()
+      );
+      // User creates submission strictly as PENDING with 0 points awarded and no reviewer
+      allow create: if isSignedIn() &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.status == 'PENDING' &&
+        isValidId(submissionId) &&
+        (!('pointsAwarded' in request.resource.data) || request.resource.data.pointsAwarded == 0) &&
+        (!('reviewedBy' in request.resource.data) || request.resource.data.reviewedBy == null) &&
+        (!('reviewedAt' in request.resource.data) || request.resource.data.reviewedAt == null);
+      // Only authorized Admins can review/approve/reject submissions. Admins cannot review their own submissions.
+      allow update: if isAdmin() && (
+        resource.data.userId != request.auth.uid
+      );
+      allow delete: if isTopAdmin();
+    }
+
+    // Challenges (Read by members, write strictly by Top Admin)
+    match /challenges/{challengeId} {
+      allow get, list: if isSignedIn();
+      allow write: if isTopAdmin();
+    }
+
+    // Prizes (Read by members, write strictly by Top Admin)
+    match /prizes/{prizeId} {
+      allow get, list: if isSignedIn();
+      allow write: if isTopAdmin();
+    }
+
+    // Admins Roster (Read by admins, write strictly by Top Admin)
+    match /admins/{adminId} {
+      allow read: if isAdmin();
+      allow write: if isTopAdmin();
+    }
+
+    // Audit Logs (Read by admins, create by admins, immutable - no update or delete)
+    // Fields: adminId, action, targetId, timestamp, details
+    match /auditLogs/{logId} {
+      allow get, list: if isAdmin();
+      allow create: if isAdmin() &&
+        request.resource.data.adminId == request.auth.uid &&
+        isValidId(logId);
+      allow update, delete: if false;
+    }
+
+    // Community Posts (Read by members, authenticated create)
+    match /communityPosts/{postId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+    }
+
+    // Organization & Impact Settings (Read by members, write strictly by Top Admin)
+    match /settings/{settingId} {
+      allow get, list: if isSignedIn();
+      allow write: if isTopAdmin();
+    }
+
+    // Health / Connection Test
+    match /test/{docId} {
+      allow get: if true;
+    }
+  }
+}

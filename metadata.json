@@ -1,0 +1,6 @@
+{
+  "name": "Awareness Global Movement",
+  "description": "An environmental behavioral-change platform under Awareness Global encouraging the reduction of single-use plastic bags through reusable bag adoption, verified actions, and community impact.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

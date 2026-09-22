@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- Outer Ring Gold Gradient -->
+    <linearGradient id="outerGold" x1="0.2" y1="0.8" x2="0.8" y2="0.2">
+      <stop offset="0%" stop-color="#65350B" />
+      <stop offset="18%" stop-color="#8A4F18" />
+      <stop offset="40%" stop-color="#B87B2B" />
+      <stop offset="62%" stop-color="#DCAB52" />
+      <stop offset="82%" stop-color="#F4D692" />
+      <stop offset="94%" stop-color="#FCF3DC" />
+      <stop offset="100%" stop-color="#E9C67A" />
+    </linearGradient>
+
+    <!-- Outer Ring Bevel Rim Highlight -->
+    <linearGradient id="outerBevel" x1="0.1" y1="0.9" x2="0.9" y2="0.1">
+      <stop offset="0%" stop-color="#421F04" stop-opacity="0.85" />
+      <stop offset="50%" stop-color="#D4AF37" stop-opacity="0.6" />
+      <stop offset="100%" stop-color="#FFF9EB" stop-opacity="0.95" />
+    </linearGradient>
+
+    <!-- Outer Ring Inner Edge Shadow -->
+    <linearGradient id="innerEdgeShadow" x1="0.1" y1="0.9" x2="0.9" y2="0.1">
+      <stop offset="0%" stop-color="#3B1A03" stop-opacity="0.8" />
+      <stop offset="70%" stop-color="#B3802C" stop-opacity="0.3" />
+      <stop offset="100%" stop-color="#552B08" stop-opacity="0.65" />
+    </linearGradient>
+
+    <!-- Torus Curvature Sheen -->
+    <linearGradient id="torusSheen" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.3" />
+      <stop offset="45%" stop-color="#FFFFFF" stop-opacity="0" />
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.25" />
+    </linearGradient>
+
+    <!-- Center Iris Metallic Gold Gradient -->
+    <linearGradient id="irisGold" x1="0.2" y1="0.8" x2="0.8" y2="0.2">
+      <stop offset="0%" stop-color="#6E3C0F" />
+      <stop offset="28%" stop-color="#9D5E21" />
+      <stop offset="54%" stop-color="#CB943F" />
+      <stop offset="78%" stop-color="#F1D18B" />
+      <stop offset="94%" stop-color="#FCF3DC" />
+      <stop offset="100%" stop-color="#DEB868" />
+    </linearGradient>
+
+    <!-- Pupil Radial Gradient -->
+    <radialGradient id="pupilGrad" cx="44%" cy="44%" r="62%">
+      <stop offset="0%" stop-color="#2C1810" />
+      <stop offset="70%" stop-color="#180A04" />
+      <stop offset="100%" stop-color="#0F0502" />
+    </radialGradient>
+  </defs>
+
+  <!-- 1. Outer Metallic Gold Ring -->
+  <path d="M 512 68 A 444 444 0 1 1 511.9 68 Z M 512 170 A 342 342 0 1 0 512.1 170 Z" fill="url(#outerGold)" fill-rule="evenodd" />
+  <circle cx="512" cy="512" r="444" fill="none" stroke="url(#outerBevel)" stroke-width="4" />
+  <circle cx="512" cy="512" r="342" fill="none" stroke="url(#innerEdgeShadow)" stroke-width="4" />
+  <path d="M 512 68 A 444 444 0 1 1 511.9 68 Z M 512 170 A 342 342 0 1 0 512.1 170 Z" fill="url(#torusSheen)" fill-rule="evenodd" opacity="0.35" />
+
+  <!-- 2. Inner Clean White Field -->
+  <circle cx="512" cy="512" r="340" fill="#FFFFFF" />
+
+  <!-- 3. Center Golden Iris Ring -->
+  <circle cx="512" cy="514" r="189" fill="#2C1810" opacity="0.15" />
+  <path d="M 512 325 A 187 187 0 1 1 511.9 325 Z M 512 406 A 106 106 0 1 0 512.1 406 Z" fill="url(#irisGold)" fill-rule="evenodd" />
+  <circle cx="512" cy="512" r="187" fill="none" stroke="#FFE4A0" stroke-width="3" opacity="0.7" />
+  <circle cx="512" cy="512" r="106" fill="none" stroke="#452206" stroke-width="2.5" opacity="0.6" />
+
+  <!-- 4. Center Pupil Core -->
+  <circle cx="512" cy="512" r="104" fill="url(#pupilGrad)" />
+
+  <!-- 5. Specular Optical Catchlight Reflection -->
+  <ellipse cx="475" cy="475" rx="24" ry="14" transform="rotate(-45 475 475)" fill="#FFFFFF" opacity="0.55" />
+  <circle cx="455" cy="455" r="8" fill="#FFFFFF" opacity="0.75" />
+</svg>

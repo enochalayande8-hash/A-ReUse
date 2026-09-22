@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+:root {
+  --brown: #40281d;
+  --muted: #78675e;
+  --cream: #fbf7ed;
+  --paper: #fffdf8;
+  --gold: #e2a72e;
+  --leaf: #46705b;
+  --line: #eadfce;
+}
+
+body {
+  font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
+  color: var(--brown);
+  background: radial-gradient(circle at 10% 5%, rgba(244, 212, 125, 0.28), transparent 32%),
+              radial-gradient(circle at 90% 90%, rgba(156, 186, 162, 0.22), transparent 30%),
+              #efe7d8;
+  min-height: 100vh;
+}
+
+.font-serif-heading {
+  font-family: 'Fraunces', Georgia, serif;
+}
+
+.font-body {
+  font-family: 'DM Sans', system-ui, sans-serif;
+}
+
+/* Friendly warm card styles */
+.app-card {
+  background: var(--paper);
+  border: 1px solid #eee4d5;
+  border-radius: 24px;
+  box-shadow: 0 8px 25px rgba(92, 64, 33, 0.04);
+}
+
+.quick-card {
+  border-radius: 20px;
+  padding: 15px;
+  text-align: left;
+  display: grid;
+  grid-template-columns: 40px 1fr;
+  gap: 12px;
+  align-items: center;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.quick-card:active {
+  transform: scale(0.98);
+}
