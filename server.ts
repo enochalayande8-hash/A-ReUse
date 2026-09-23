@@ -1947,10 +1947,27 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
+    const candidateDistPaths = [
+      path.join(process.cwd(), 'dist'),
+      __dirname,
+      path.join(__dirname, '..', 'dist'),
+      path.join(__dirname, 'dist'),
+    ];
+    const distPath = candidateDistPaths.find((p) => fs.existsSync(path.join(p, 'index.html'))) || path.join(process.cwd(), 'dist');
+
     app.use(express.static(distPath));
+
     app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+      // Never send HTML to API endpoints
+      if (req.path.startsWith('/api')) {
+        return res.status(404).json({ error: `API route not found: ${req.method} ${req.path}` });
+      }
+      const indexPath = path.join(distPath, 'index.html');
+      if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+      } else {
+        res.status(500).send('Production static build files (index.html) could not be located. Run `npm run build` prior to starting.');
+      }
     });
   }
 

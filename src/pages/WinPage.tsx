@@ -13,17 +13,18 @@ import {
 } from 'lucide-react';
 
 interface WinPageProps {
-  prizes: Prize[];
+  prizes?: Prize[];
   onNavigateToProof: () => void;
   onNavigateToTopAdmin?: () => void;
 }
 
 export const WinPage: React.FC<WinPageProps> = ({
-  prizes,
+  prizes = [],
   onNavigateToProof,
   onNavigateToTopAdmin,
 }) => {
   const { isTopAdmin } = useAuth();
+  const safePrizes = Array.isArray(prizes) ? prizes : [];
 
   return (
     <div className="space-y-6 animate-fadeIn pb-8">
@@ -55,7 +56,7 @@ export const WinPage: React.FC<WinPageProps> = ({
         </div>
       </div>
 
-      {prizes.length === 0 ? (
+      {safePrizes.length === 0 ? (
         <EmptyState
           icon={Trophy}
           title="No Official Prizes Announced Yet"
@@ -67,11 +68,11 @@ export const WinPage: React.FC<WinPageProps> = ({
         />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {prizes.map((prize) => {
+          {safePrizes.map((prize) => {
             const isConcluded = prize.status === 'CONCLUDED';
             return (
               <div
-                key={prize.id}
+                key={prize.id || Math.random().toString()}
                 className="app-card p-5 border border-[#eadfce] flex flex-col justify-between"
               >
                 <div>

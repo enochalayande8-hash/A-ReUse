@@ -5,12 +5,13 @@ import { EmptyState } from '../components/EmptyState';
 import { TrendingUp } from 'lucide-react';
 
 interface RankPageProps {
-  leaderboard: LeaderboardEntry[];
+  leaderboard?: LeaderboardEntry[];
   onNavigateToProof: () => void;
 }
 
-export const RankPage: React.FC<RankPageProps> = ({ leaderboard, onNavigateToProof }) => {
+export const RankPage: React.FC<RankPageProps> = ({ leaderboard = [], onNavigateToProof }) => {
   const { user } = useAuth();
+  const safeLeaderboard = Array.isArray(leaderboard) ? leaderboard : [];
 
   return (
     <div className="space-y-6 animate-fadeIn pb-8">
@@ -28,7 +29,7 @@ export const RankPage: React.FC<RankPageProps> = ({ leaderboard, onNavigateToPro
         </p>
       </div>
 
-      {leaderboard.length === 0 ? (
+      {safeLeaderboard.length === 0 ? (
         <EmptyState
           icon={TrendingUp}
           title="No Rankings Yet"
@@ -39,11 +40,11 @@ export const RankPage: React.FC<RankPageProps> = ({ leaderboard, onNavigateToPro
       ) : (
         <div className="app-card border border-[#eadfce] overflow-hidden">
           <div className="divide-y divide-[#eadfce]">
-            {leaderboard.map((entry) => {
+            {safeLeaderboard.map((entry) => {
               const isCurrent = user?.id === entry.userId;
               return (
                 <div
-                  key={entry.userId}
+                  key={entry.userId || Math.random().toString()}
                   className={`p-4 flex items-center justify-between gap-3 transition-colors ${
                     isCurrent ? 'bg-[#f4df9e]/40' : 'hover:bg-[#fbf7ed]'
                   }`}
@@ -66,7 +67,7 @@ export const RankPage: React.FC<RankPageProps> = ({ leaderboard, onNavigateToPro
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="font-bold text-sm text-[#40281d] truncate">
-                          {entry.userName}
+                          {entry.userName || 'Movement Member'}
                         </span>
                         {isCurrent && (
                           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-[#40281d] text-[#fffdf8]">
@@ -75,14 +76,14 @@ export const RankPage: React.FC<RankPageProps> = ({ leaderboard, onNavigateToPro
                         )}
                       </div>
                       <span className="text-[11px] text-[#78675e] block">
-                        {entry.verifiedActionsCount} actions • {entry.verifiedBagsAvoided} bags saved
+                        {entry.verifiedActionsCount || 0} actions • {entry.verifiedBagsAvoided || 0} bags saved
                       </span>
                     </div>
                   </div>
 
                   <div className="text-right flex-shrink-0">
                     <span className="font-serif-heading font-bold text-sm sm:text-base text-[#40281d] bg-[#f4df9e]/60 px-2.5 py-1 rounded-xl border border-[#e8ce82]">
-                      {entry.verifiedPoints} pts
+                      {entry.verifiedPoints || 0} pts
                     </span>
                   </div>
                 </div>

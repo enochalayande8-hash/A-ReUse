@@ -17,17 +17,18 @@ import {
 } from 'lucide-react';
 
 interface ProofPageProps {
-  userSubmissions: ProofSubmission[];
+  userSubmissions?: ProofSubmission[];
   onSubmissionSuccess: () => void;
   onNavigateToAuth: () => void;
 }
 
 export const ProofPage: React.FC<ProofPageProps> = ({
-  userSubmissions,
+  userSubmissions = [],
   onSubmissionSuccess,
   onNavigateToAuth,
 }) => {
   const { user, isAuthenticated } = useAuth();
+  const safeSubmissions = Array.isArray(userSubmissions) ? userSubmissions : [];
 
   // Form State
   const [actionType, setActionType] = useState('USED_REUSABLE_BAG');
@@ -335,11 +336,11 @@ export const ProofPage: React.FC<ProofPageProps> = ({
               Your Submission History
             </h2>
             <span className="text-xs text-[#78675e] font-semibold">
-              {userSubmissions.length} Submissions
+              {safeSubmissions.length} Submissions
             </span>
           </div>
 
-          {userSubmissions.length === 0 ? (
+          {safeSubmissions.length === 0 ? (
             <EmptyState
               icon={FileText}
               title="No Proof Submissions Yet"
@@ -348,7 +349,7 @@ export const ProofPage: React.FC<ProofPageProps> = ({
             />
           ) : (
             <div className="space-y-3">
-              {userSubmissions.map((sub) => (
+              {safeSubmissions.map((sub) => (
                 <div
                   key={sub.id}
                   className="p-4 rounded-2xl bg-[#fffdf8] border border-[#eadfce] shadow-2xs space-y-2"

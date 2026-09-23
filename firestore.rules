@@ -15,9 +15,12 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    // Designated initial Top Admin Firebase UID
+    // Designated initial Top Admin Firebase UID or Bootstrapped Admin Email
     function isInitialTopAdminUid() {
-      return isSignedIn() && request.auth.uid == 'Bo6cQS55HedBDEADJtcdTyaHqNa2';
+      return isSignedIn() && (
+        request.auth.uid == 'Bo6cQS55HedBDEADJtcdTyaHqNa2' ||
+        (request.auth.token.email == 'enochalay8@gmail.com' && request.auth.token.email_verified == true)
+      );
     }
 
     // TOP_ADMIN role check using Firebase Auth Custom Claims,

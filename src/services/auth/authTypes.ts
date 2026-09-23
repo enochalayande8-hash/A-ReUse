@@ -12,6 +12,7 @@ export interface AuthState {
 export interface AuthContextValue extends AuthState {
   login: (email: string, password: string) => Promise<void>;
   signup: (fullName: string, email: string, password: string, confirmPassword: string) => Promise<void>;
+  loginWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
   forgotPassword: (email: string) => Promise<string>;
   claimTopAdmin: (bootstrapKey: string) => Promise<void>;

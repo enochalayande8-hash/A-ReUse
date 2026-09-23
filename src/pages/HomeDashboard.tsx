@@ -18,19 +18,20 @@ import {
 } from 'lucide-react';
 
 interface HomeDashboardProps {
-  challenges: Challenge[];
+  challenges?: Challenge[];
   onNavigate: (tab: string) => void;
   pendingSubmissionsCount?: number;
 }
 
 export const HomeDashboard: React.FC<HomeDashboardProps> = ({
-  challenges,
+  challenges = [],
   onNavigate,
   pendingSubmissionsCount = 0,
 }) => {
   const { user, isAuthenticated } = useAuth();
+  const safeChallenges = Array.isArray(challenges) ? challenges : [];
 
-  const activeChallenge = challenges.find((c) => c.status === 'ACTIVE');
+  const activeChallenge = safeChallenges.find((c) => c.status === 'ACTIVE');
 
   const hasVerifiedActivity =
     (user?.verifiedActionsCount || 0) > 0 ||

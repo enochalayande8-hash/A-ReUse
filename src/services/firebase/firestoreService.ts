@@ -24,9 +24,13 @@ import {
 } from '../../types';
 
 /**
- * Validates connection to Firestore server on application load (Skill Constraint)
+ * Validates connection to Firestore server on application load safely
  */
 export async function testFirestoreConnection(): Promise<boolean> {
+  if (!db) {
+    console.warn('[Firestore] Database instance not initialized.');
+    return false;
+  }
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
     console.log('[Firestore] Live server connection established.');
@@ -52,6 +56,7 @@ export async function testFirestoreConnection(): Promise<boolean> {
 // ----------------------------------------------------
 
 export async function saveUserToFirestore(user: User): Promise<void> {
+  if (!db || !user?.id) return;
   try {
     const userRef = doc(db, 'users', user.id);
     await setDoc(userRef, {
@@ -75,6 +80,7 @@ export async function saveUserToFirestore(user: User): Promise<void> {
 }
 
 export async function getUserFromFirestore(userId: string): Promise<User | null> {
+  if (!db || !userId) return null;
   try {
     const userRef = doc(db, 'users', userId);
     const snap = await getDoc(userRef);
@@ -89,6 +95,7 @@ export async function getUserFromFirestore(userId: string): Promise<User | null>
 }
 
 export function subscribeToUserDoc(userId: string, callback: (user: Partial<User> | null) => void) {
+  if (!db || !userId) return () => {};
   try {
     const userRef = doc(db, 'users', userId);
     return onSnapshot(userRef, (snap) => {
@@ -110,6 +117,7 @@ export function subscribeToUserDoc(userId: string, callback: (user: Partial<User
 // ----------------------------------------------------
 
 export async function createSubmissionInFirestore(submission: ProofSubmission): Promise<void> {
+  if (!db || !submission?.id) return;
   try {
     const subRef = doc(db, 'submissions', submission.id);
     await setDoc(subRef, {
@@ -140,6 +148,7 @@ export async function createSubmissionInFirestore(submission: ProofSubmission): 
 }
 
 export async function fetchUserSubmissionsFromFirestore(userId: string): Promise<ProofSubmission[]> {
+  if (!db || !userId) return [];
   try {
     const q = query(
       collection(db, 'submissions'),
@@ -159,6 +168,7 @@ export async function fetchUserSubmissionsFromFirestore(userId: string): Promise
 // ----------------------------------------------------
 
 export async function fetchChallengesFromFirestore(): Promise<Challenge[]> {
+  if (!db) return [];
   try {
     const q = query(collection(db, 'challenges'), orderBy('createdAt', 'desc'));
     const snap = await getDocs(q);
@@ -170,6 +180,7 @@ export async function fetchChallengesFromFirestore(): Promise<Challenge[]> {
 }
 
 export async function saveChallengeToFirestore(challenge: Challenge): Promise<void> {
+  if (!db || !challenge?.id) return;
   try {
     const cRef = doc(db, 'challenges', challenge.id);
     await setDoc(cRef, challenge, { merge: true });
@@ -183,6 +194,7 @@ export async function saveChallengeToFirestore(challenge: Challenge): Promise<vo
 // ----------------------------------------------------
 
 export async function fetchPrizesFromFirestore(): Promise<Prize[]> {
+  if (!db) return [];
   try {
     const q = query(collection(db, 'prizes'), orderBy('createdAt', 'desc'));
     const snap = await getDocs(q);
@@ -194,6 +206,7 @@ export async function fetchPrizesFromFirestore(): Promise<Prize[]> {
 }
 
 export async function savePrizeToFirestore(prize: Prize): Promise<void> {
+  if (!db || !prize?.id) return;
   try {
     const pRef = doc(db, 'prizes', prize.id);
     await setDoc(pRef, prize, { merge: true });
@@ -207,6 +220,7 @@ export async function savePrizeToFirestore(prize: Prize): Promise<void> {
 // ----------------------------------------------------
 
 export async function fetchCommunityPostsFromFirestore(): Promise<CommunityPost[]> {
+  if (!db) return [];
   try {
     const q = query(collection(db, 'communityPosts'), orderBy('createdAt', 'desc'));
     const snap = await getDocs(q);
@@ -218,6 +232,7 @@ export async function fetchCommunityPostsFromFirestore(): Promise<CommunityPost[
 }
 
 export async function addCommunityPostToFirestore(post: CommunityPost): Promise<void> {
+  if (!db || !post?.id) return;
   try {
     const postRef = doc(db, 'communityPosts', post.id);
     await setDoc(postRef, post);
@@ -231,6 +246,7 @@ export async function addCommunityPostToFirestore(post: CommunityPost): Promise<
 // ----------------------------------------------------
 
 export async function saveSettingToFirestore(key: string, data: any): Promise<void> {
+  if (!db || !key) return;
   try {
     const sRef = doc(db, 'settings', key);
     await setDoc(sRef, data, { merge: true });
@@ -240,6 +256,7 @@ export async function saveSettingToFirestore(key: string, data: any): Promise<vo
 }
 
 export async function fetchSettingFromFirestore<T>(key: string): Promise<T | null> {
+  if (!db || !key) return null;
   try {
     const sRef = doc(db, 'settings', key);
     const snap = await getDoc(sRef);

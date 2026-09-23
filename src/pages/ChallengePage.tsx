@@ -15,22 +15,25 @@ import {
 } from 'lucide-react';
 
 interface ChallengePageProps {
-  challenges: Challenge[];
+  challenges?: Challenge[];
   onNavigateToProof: () => void;
   onNavigateToTopAdmin?: () => void;
 }
 
 export const ChallengePage: React.FC<ChallengePageProps> = ({
-  challenges,
+  challenges = [],
   onNavigateToProof,
   onNavigateToTopAdmin,
 }) => {
   const { isTopAdmin } = useAuth();
+  const safeChallenges = Array.isArray(challenges) ? challenges : [];
+
   const [selectedChallengeId, setSelectedChallengeId] = useState<string | null>(
-    challenges.length > 0 ? challenges[0].id : null
+    safeChallenges.length > 0 ? safeChallenges[0].id : null
   );
 
-  const selectedChallenge = challenges.find((c) => c.id === selectedChallengeId) || challenges[0];
+  const selectedChallenge =
+    safeChallenges.find((c) => c.id === selectedChallengeId) || safeChallenges[0] || null;
 
   return (
     <div className="space-y-6 animate-fadeIn pb-8">
@@ -62,7 +65,7 @@ export const ChallengePage: React.FC<ChallengePageProps> = ({
         </div>
       </div>
 
-      {challenges.length === 0 ? (
+      {safeChallenges.length === 0 ? (
         <EmptyState
           icon={Award}
           title="No Active Challenges Yet"
@@ -77,14 +80,14 @@ export const ChallengePage: React.FC<ChallengePageProps> = ({
           {/* Challenge Selector List */}
           <div className="space-y-2">
             <h3 className="text-xs font-bold text-[#40281d] uppercase tracking-wider">
-              Available Campaigns ({challenges.length})
+              Available Campaigns ({safeChallenges.length})
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              {challenges.map((c) => {
+              {safeChallenges.map((c) => {
                 const isSelected = selectedChallenge?.id === c.id;
                 return (
                   <div
-                    key={c.id}
+                    key={c.id || Math.random().toString()}
                     onClick={() => setSelectedChallengeId(c.id)}
                     className={`p-3.5 rounded-2xl border transition-all cursor-pointer ${
                       isSelected
@@ -109,7 +112,7 @@ export const ChallengePage: React.FC<ChallengePageProps> = ({
                           isSelected ? 'text-[#e2a72e]' : 'text-[#8b6508]'
                         }`}
                       >
-                        +{c.pointsReward} Points
+                        +{c.pointsReward || 0} Points
                       </span>
                     </div>
                     <h4 className="font-bold text-sm leading-snug line-clamp-2">{c.title}</h4>
@@ -129,7 +132,7 @@ export const ChallengePage: React.FC<ChallengePageProps> = ({
                   </span>
                   <div className="flex items-center gap-1.5 text-xs text-[#78675e]">
                     <Clock className="w-3.5 h-3.5 text-[#e2a72e]" />
-                    <span>Reward: +{selectedChallenge.pointsReward} Verified Points</span>
+                    <span>Reward: +{selectedChallenge.pointsReward || 0} Verified Points</span>
                   </div>
                 </div>
 

@@ -6,6 +6,8 @@ import {
   sendPasswordResetEmail,
   updateFirebaseProfile,
   onAuthStateChanged,
+  signInWithPopup,
+  googleProvider,
   FirebaseUser,
 } from './firebaseConfig';
 
@@ -29,10 +31,16 @@ export function formatFirebaseAuthError(error: any): string {
       return 'An account with this email address already exists. Please sign in instead.';
     case 'auth/weak-password':
       return 'Password must be at least 6 characters long.';
+    case 'auth/operation-not-allowed':
+      return 'Email/password sign-in is disabled or pending configuration in the Firebase project.';
+    case 'auth/unauthorized-domain':
+      return 'This domain is not authorized in Firebase Console. Please add this deployment domain to Firebase Authentication Authorized Domains.';
+    case 'auth/popup-closed-by-user':
+      return 'The authentication popup was closed before completing.';
     case 'auth/too-many-requests':
       return 'Access to this account has been temporarily disabled due to multiple failed login attempts. Please try again later or reset your password.';
     case 'auth/network-request-failed':
-      return 'Network error connecting to Firebase Authentication. Please check your internet connection.';
+      return 'Network error connecting to authentication services. Please check your internet connection.';
     default:
       return error.message || 'Authentication failed. Please try again.';
   }
@@ -46,5 +54,7 @@ export {
   sendPasswordResetEmail,
   updateFirebaseProfile,
   onAuthStateChanged,
+  signInWithPopup,
+  googleProvider,
 };
 export type { FirebaseUser };

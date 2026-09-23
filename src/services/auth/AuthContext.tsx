@@ -10,6 +10,8 @@ import {
   sendPasswordResetEmail,
   updateFirebaseProfile,
   onAuthStateChanged,
+  signInWithPopup,
+  googleProvider,
   formatFirebaseAuthError,
 } from '../firebase/firebaseAuth';
 import { saveUserToFirestore } from '../firebase/firestoreService';
@@ -21,9 +23,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [token, setToken] = useState<string | null>(getStoredToken());
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  // Initialize and observe Firebase Auth state
+  // Initialize and observe Firebase Auth state or stored local token
   useEffect(() => {
     let isMounted = true;
+
+    if (!auth) {
+      // Firebase Auth unavailable in this environment, restore from local session token
+      const currentToken = getStoredToken();
+      if (currentToken) {
+        api.getMe()
+          .then((res) => {
+            if (isMounted) {
+              setUser(res.user);
+            }
+          })
+          .catch(() => {
+            if (isMounted) {
+              setStoredToken(null);
+              setToken(null);
+              setUser(null);
+            }
+          })
+          .finally(() => {
+            if (isMounted) setIsLoading(false);
+          });
+      } else {
+        if (isMounted) setIsLoading(false);
+      }
+      return () => {
+        isMounted = false;
+      };
+    }
 
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       if (!isMounted) return;
@@ -40,6 +70,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             fullName: fbUser.displayName || undefined,
             idToken,
           });
+
           if (isMounted) {
             const resolvedUser = res.user;
             if (customRole === 'TOP_ADMIN' && fbUser.uid === 'Bo6cQS55HedBDEADJtcdTyaHqNa2') {
@@ -53,7 +84,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             saveUserToFirestore(resolvedUser).catch(() => {});
           }
         } catch (err) {
-          console.warn('Firebase session restoration warning:', err);
+          console.warn('[Auth] Session restoration warning:', err);
+          // Try local session fallback
+          const currentToken = getStoredToken();
+          if (currentToken && isMounted) {
+            try {
+              const res = await api.getMe();
+              if (isMounted) setUser(res.user);
+            } catch {
+              // Ignore
+            }
+          }
         } finally {
           if (isMounted) setIsLoading(false);
         }
@@ -87,57 +128,67 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(true);
     const cleanEmail = email.trim();
     try {
-      let userCredential;
-      try {
-        // 1. Authenticate with Firebase Authentication
-        userCredential = await signInWithEmailAndPassword(auth, cleanEmail, password);
-      } catch (fbErr: any) {
-        // Check if user has an existing legacy/seed account in backend database
+      let fbUserSuccess = false;
+
+      // 1. Try Firebase Authentication if initialized
+      if (auth) {
+        try {
+          const userCredential = await signInWithEmailAndPassword(auth, cleanEmail, password);
+          const fbUser = userCredential.user;
+          const idToken = await fbUser.getIdToken();
+
+          const res = await api.firebaseSession({
+            uid: fbUser.uid,
+            email: fbUser.email || cleanEmail,
+            fullName: fbUser.displayName || undefined,
+            idToken,
+          });
+
+          setStoredToken(res.token);
+          setToken(res.token);
+          setUser(res.user);
+          saveUserToFirestore(res.user).catch(() => {});
+          fbUserSuccess = true;
+          return;
+        } catch (fbErr: any) {
+          console.warn('[Firebase Auth] signIn failed, checking backend credentials:', fbErr?.code || fbErr?.message);
+        }
+      }
+
+      // 2. Seamless Backend database fallback (e.g. if domain not yet authorized or provider disabled)
+      if (!fbUserSuccess) {
         try {
           const localRes = await api.login({ email: cleanEmail, password });
           if (localRes && localRes.user) {
-            // Attempt to register in Firebase Auth for future logins
-            try {
-              const newFbUser = await createUserWithEmailAndPassword(auth, cleanEmail, password);
-              if (localRes.user.fullName && newFbUser.user) {
-                await updateFirebaseProfile(newFbUser.user, { displayName: localRes.user.fullName });
+            // Attempt to register in Firebase Auth silently in background for future SSO
+            if (auth) {
+              try {
+                const newFbUser = await createUserWithEmailAndPassword(auth, cleanEmail, password);
+                if (localRes.user.fullName && newFbUser.user) {
+                  await updateFirebaseProfile(newFbUser.user, { displayName: localRes.user.fullName });
+                }
+                const idToken = await newFbUser.user.getIdToken();
+                await api.firebaseSession({
+                  uid: newFbUser.user.uid,
+                  email: cleanEmail,
+                  fullName: localRes.user.fullName,
+                  idToken,
+                });
+              } catch {
+                // Non-blocking
               }
-              const idToken = await newFbUser.user.getIdToken();
-              await api.firebaseSession({
-                uid: newFbUser.user.uid,
-                email: cleanEmail,
-                fullName: localRes.user.fullName,
-                idToken,
-              });
-            } catch {
-              // Ignore if already created or restricted
             }
+
             setStoredToken(localRes.token);
             setToken(localRes.token);
             setUser(localRes.user);
+            saveUserToFirestore(localRes.user).catch(() => {});
             return;
           }
-        } catch {
-          // Local fallback failed as well, throw original friendly Firebase error
+        } catch (apiErr: any) {
+          throw new Error(apiErr.message || 'Incorrect email or password. Please verify your credentials and try again.');
         }
-        throw new Error(formatFirebaseAuthError(fbErr));
       }
-
-      const fbUser = userCredential.user;
-      const idToken = await fbUser.getIdToken();
-
-      // 2. Establish app session
-      const res = await api.firebaseSession({
-        uid: fbUser.uid,
-        email: fbUser.email || cleanEmail,
-        fullName: fbUser.displayName || undefined,
-        idToken,
-      });
-
-      setStoredToken(res.token);
-      setToken(res.token);
-      setUser(res.user);
-      saveUserToFirestore(res.user).catch(() => {});
     } finally {
       setIsLoading(false);
     }
@@ -156,33 +207,84 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error('Password must be at least 6 characters long.');
       }
 
-      // 1. Register with Firebase Authentication
-      let userCredential;
-      try {
-        userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, password);
-      } catch (fbErr: any) {
-        throw new Error(formatFirebaseAuthError(fbErr));
-      }
+      let fbRegistered = false;
 
-      const fbUser = userCredential.user;
-
-      // 2. Update Firebase display name
-      if (cleanName && fbUser) {
+      // 1. Try Firebase Authentication if initialized
+      if (auth) {
         try {
-          await updateFirebaseProfile(fbUser, { displayName: cleanName });
-        } catch {
-          // Non-blocking
+          const userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, password);
+          const fbUser = userCredential.user;
+
+          if (cleanName && fbUser) {
+            try {
+              await updateFirebaseProfile(fbUser, { displayName: cleanName });
+            } catch {
+              // Non-blocking
+            }
+          }
+
+          const idToken = await fbUser.getIdToken();
+          const res = await api.firebaseSession({
+            uid: fbUser.uid,
+            email: fbUser.email || cleanEmail,
+            fullName: cleanName || fbUser.displayName || cleanEmail.split('@')[0],
+            idToken,
+          });
+
+          setStoredToken(res.token);
+          setToken(res.token);
+          setUser(res.user);
+          saveUserToFirestore(res.user).catch(() => {});
+          fbRegistered = true;
+          return;
+        } catch (fbErr: any) {
+          console.warn('[Firebase Auth] createUser failed, trying backend direct signup:', fbErr?.code || fbErr?.message);
+          // If the email is already in use in Firebase, give clear message
+          if (fbErr?.code === 'auth/email-already-in-use') {
+            throw new Error('An account with this email address already exists. Please sign in instead.');
+          }
         }
       }
 
-      // 3. Get Firebase ID token
+      // 2. Fallback to backend direct signup (ensures account creation always works on any host)
+      if (!fbRegistered) {
+        try {
+          const res = await api.signup({
+            fullName: cleanName,
+            email: cleanEmail,
+            password,
+            confirmPassword,
+          });
+
+          setStoredToken(res.token);
+          setToken(res.token);
+          setUser(res.user);
+          saveUserToFirestore(res.user).catch(() => {});
+          return;
+        } catch (apiErr: any) {
+          throw new Error(apiErr.message || 'Could not complete registration. Please try again.');
+        }
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const loginWithGoogle = async () => {
+    setIsLoading(true);
+    try {
+      if (!auth) {
+        throw new Error('Google Authentication is initializing. Please sign in with email and password in the meantime.');
+      }
+
+      const result = await signInWithPopup(auth, googleProvider);
+      const fbUser = result.user;
       const idToken = await fbUser.getIdToken();
 
-      // 4. Sync with app session
       const res = await api.firebaseSession({
         uid: fbUser.uid,
-        email: fbUser.email || cleanEmail,
-        fullName: cleanName || fbUser.displayName || cleanEmail.split('@')[0],
+        email: fbUser.email || '',
+        fullName: fbUser.displayName || undefined,
         idToken,
       });
 
@@ -190,6 +292,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setToken(res.token);
       setUser(res.user);
       saveUserToFirestore(res.user).catch(() => {});
+    } catch (err: any) {
+      if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') {
+        // User voluntarily dismissed popup
+        return;
+      }
+      if (err?.code === 'auth/unauthorized-domain') {
+        throw new Error('This deployment domain is not yet added to Firebase Console Authorized Domains. You can sign in using email/password.');
+      }
+      throw new Error(formatFirebaseAuthError(err) || 'Google Sign-In was unsuccessful.');
     } finally {
       setIsLoading(false);
     }
@@ -198,7 +309,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = async () => {
     setIsLoading(true);
     try {
-      await firebaseSignOut(auth).catch(() => {});
+      if (auth) {
+        await firebaseSignOut(auth).catch(() => {});
+      }
       await api.logout().catch(() => {});
     } finally {
       setStoredToken(null);
@@ -210,16 +323,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const forgotPassword = async (email: string): Promise<string> => {
     const cleanEmail = email.trim();
-    try {
-      await sendPasswordResetEmail(auth, cleanEmail);
-      return 'Firebase password reset email has been sent. Please check your inbox.';
-    } catch (fbErr: any) {
+    if (auth) {
       try {
-        const res = await api.forgotPassword(cleanEmail);
-        return res.message;
-      } catch {
-        throw new Error(formatFirebaseAuthError(fbErr));
+        await sendPasswordResetEmail(auth, cleanEmail);
+        return 'Password reset link sent to your email inbox.';
+      } catch (fbErr: any) {
+        // Fallback to backend reset endpoint
       }
+    }
+
+    try {
+      const res = await api.forgotPassword(cleanEmail);
+      return res.message || 'Password reset instructions have been dispatched.';
+    } catch (err: any) {
+      throw new Error(err.message || 'Failed to request password reset.');
     }
   };
 
@@ -227,15 +344,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(true);
     try {
       let idToken: string | undefined = undefined;
-      if (auth.currentUser) {
+      if (auth?.currentUser) {
         idToken = await auth.currentUser.getIdToken(true);
       }
       const res = await api.claimTopAdmin(bootstrapKey, idToken);
 
       // Force refresh user token to obtain new custom claims (role: 'TOP_ADMIN')
-      if (auth.currentUser) {
-        await auth.currentUser.getIdToken(true);
-        await auth.currentUser.getIdTokenResult(true);
+      if (auth?.currentUser) {
+        await auth.currentUser.getIdToken(true).catch(() => {});
+        await auth.currentUser.getIdTokenResult(true).catch(() => {});
       }
 
       setUser(res.user);
@@ -258,7 +375,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const updateProfile = async (fullName?: string, profileImageUrl?: string) => {
-    if (auth.currentUser && fullName) {
+    if (auth?.currentUser && fullName) {
       await updateFirebaseProfile(auth.currentUser, { displayName: fullName }).catch(() => {});
     }
     const res = await api.updateProfile({ fullName, profileImageUrl });
@@ -281,6 +398,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isAdmin,
         login,
         signup,
+        loginWithGoogle,
         logout,
         forgotPassword,
         claimTopAdmin,
@@ -300,4 +418,3 @@ export const useAuth = () => {
   }
   return context;
 };
-
