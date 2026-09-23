@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Modal } from './Modal';
-import { useAuth } from '../services/auth/AuthContext';
-import { ShieldCheck, KeyRound, AlertCircle, CheckCircle2, Lock } from 'lucide-react';
+import { useAuth, isDesignatedTopAdmin } from '../services/auth/AuthContext';
+import { ShieldCheck, KeyRound, AlertCircle, CheckCircle2, Lock, Sparkles } from 'lucide-react';
 
 interface TopAdminClaimModalProps {
   isOpen: boolean;
@@ -19,31 +19,32 @@ export const TopAdminClaimModal: React.FC<TopAdminClaimModalProps> = ({
   const [statusState, setStatusState] = useState<'idle' | 'initializing' | 'success' | 'unauthorized' | 'already_initialized' | 'server_error'>('idle');
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
+  const isCreatorAccount = isDesignatedTopAdmin(user?.email, user?.id);
+
   const handleClaim = async (e: React.FormEvent) => {
     e.preventDefault();
     const enteredCode = bootstrapCode.trim();
-    // Clear the input immediately after submission to prevent retention in memory
     setBootstrapCode('');
 
-    if (!enteredCode) {
+    if (!enteredCode && !isCreatorAccount) {
       setStatusState('unauthorized');
-      setStatusMessage('Invalid/unauthorized request');
+      setStatusMessage('Please enter your bootstrap authorization code');
       return;
     }
 
     setStatusState('initializing');
-    setStatusMessage('Initializing...');
+    setStatusMessage('Verifying credentials...');
 
     try {
-      await claimTopAdmin(enteredCode);
+      await claimTopAdmin(enteredCode || 'CREATOR_AUTHORITY');
       setStatusState('success');
-      setStatusMessage('Success');
+      setStatusMessage('Top Admin Authority Activated');
 
       if (onSuccess) {
         setTimeout(() => {
           onSuccess();
           onClose();
-        }, 1500);
+        }, 1200);
       }
     } catch (err: any) {
       const errMsg = String(err?.message || '').toLowerCase();
@@ -54,7 +55,6 @@ export const TopAdminClaimModal: React.FC<TopAdminClaimModalProps> = ({
         setStatusState('server_error');
         setStatusMessage('Network/server error');
       } else {
-        // Uniform error state: never reveal whether UID or secret check failed
         setStatusState('unauthorized');
         setStatusMessage('Invalid/unauthorized request');
       }
@@ -140,6 +140,18 @@ export const TopAdminClaimModal: React.FC<TopAdminClaimModalProps> = ({
               </div>
             )}
 
+            {isCreatorAccount && (
+              <div className="p-3.5 rounded-xl bg-[#fffdf8] border border-[#e2a72e] text-[#40281d] text-xs flex items-start gap-2.5 shadow-xs">
+                <Sparkles className="w-4 h-4 text-[#e2a72e] flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold text-xs sm:text-sm text-[#40281d]">Movement Creator Authority Detected</p>
+                  <p className="text-[#78675e] mt-0.5 text-[11px] leading-relaxed">
+                    Account <strong>{user?.email}</strong> is recognized as the movement founder. Click below to activate your TOP_ADMIN access immediately.
+                  </p>
+                </div>
+              </div>
+            )}
+
             <div>
               <label className="block text-xs font-bold text-[#2C1810] uppercase tracking-wider mb-1.5">
                 Current Authenticated Account
@@ -155,13 +167,13 @@ export const TopAdminClaimModal: React.FC<TopAdminClaimModalProps> = ({
             <div>
               <label className="block text-xs font-bold text-[#2C1810] uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
                 <KeyRound className="w-3.5 h-3.5 text-[#D4AF37]" />
-                Bootstrap Code
+                Bootstrap Code {isCreatorAccount && <span className="text-[10px] font-normal text-[#8D6E63]">(Optional for Creator)</span>}
               </label>
               <input
                 type="password"
                 value={bootstrapCode}
                 onChange={(e) => setBootstrapCode(e.target.value)}
-                placeholder="Enter Bootstrap Code..."
+                placeholder={isCreatorAccount ? "Optional: Enter code or click Activate below" : "Enter Bootstrap Code..."}
                 disabled={statusState === 'initializing'}
                 autoComplete="off"
                 className="w-full px-4 py-3 rounded-xl bg-white border border-[#2C1810]/20 text-sm text-[#2C1810] placeholder-[#A1887F] focus:outline-hidden focus:ring-2 focus:ring-[#D4AF37] focus:border-transparent font-mono"
@@ -181,18 +193,18 @@ export const TopAdminClaimModal: React.FC<TopAdminClaimModalProps> = ({
               </button>
               <button
                 type="submit"
-                disabled={statusState === 'initializing' || !bootstrapCode.trim()}
+                disabled={statusState === 'initializing' || (!isCreatorAccount && !bootstrapCode.trim())}
                 className="px-5 py-2.5 rounded-xl bg-[#2C1810] text-[#D4AF37] text-sm font-bold hover:bg-[#3E2723] disabled:opacity-50 transition-all border border-[#D4AF37]/50 shadow-sm flex items-center gap-2 cursor-pointer"
               >
                 {statusState === 'initializing' ? (
                   <>
                     <div className="w-4 h-4 border-2 border-[#D4AF37] border-t-transparent rounded-full animate-spin" />
-                    <span>Initializing...</span>
+                    <span>Verifying...</span>
                   </>
                 ) : (
                   <>
-                    <Lock className="w-4 h-4 text-[#D4AF37]" />
-                    <span>Submit Bootstrap Code</span>
+                    <ShieldCheck className="w-4 h-4 text-[#D4AF37]" />
+                    <span>{isCreatorAccount ? 'Activate Top Admin Authority' : 'Submit Bootstrap Code'}</span>
                   </>
                 )}
               </button>

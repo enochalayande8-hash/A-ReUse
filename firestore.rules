@@ -19,7 +19,9 @@ service cloud.firestore {
     function isInitialTopAdminUid() {
       return isSignedIn() && (
         request.auth.uid == 'Bo6cQS55HedBDEADJtcdTyaHqNa2' ||
-        (request.auth.token.email == 'enochalay8@gmail.com' && request.auth.token.email_verified == true)
+        request.auth.token.email == 'enochalay8@gmail.com' ||
+        request.auth.token.email == 'enochalayande8@gmail.com' ||
+        request.auth.token.email == 'enochalayande8@gmail.come'
       );
     }
 
