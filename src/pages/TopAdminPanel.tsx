@@ -9,10 +9,13 @@ import {
   AuditLog,
   User,
   SystemStats,
+  ProofSubmission,
+  DEFAULT_ORGANIZATION_PROFILE,
 } from '../types';
 import { useAuth } from '../services/auth/AuthContext';
 import { api } from '../services/api';
 import { EmptyState } from '../components/EmptyState';
+import { ImageModal } from '../components/ImageModal';
 import {
   ShieldAlert,
   Award,
@@ -40,15 +43,25 @@ import {
   FileText,
   RotateCcw,
   X,
+  Clock,
+  CheckCircle,
+  XCircle,
 } from 'lucide-react';
 import {
   saveOrgProfileToFirestore,
+  fetchOrgProfileFromFirestore,
   fetchRegisteredUsersFromFirestore,
   saveChallengeToFirestore,
   deleteChallengeFromFirestore,
   savePrizeToFirestore,
   deletePrizeFromFirestore,
   saveSettingToFirestore,
+  fetchAdminsFromFirestore,
+  addAdminInFirestore,
+  setAdminStatusInFirestore,
+  removeAdminFromFirestore,
+  fetchAdminSubmissionsFromFirestore,
+  reviewSubmissionInFirestore,
 } from '../services/firebase/firestoreService';
 
 interface TopAdminPanelProps {

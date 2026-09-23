@@ -21,8 +21,10 @@ import {
   CommunityPost,
   ImpactSettings,
   OrganizationProfile,
+  DEFAULT_ORGANIZATION_PROFILE,
   PaymentSettings,
   LeaderboardEntry,
+  AdminUserRecord,
 } from '../../types';
 
 /**
@@ -152,13 +154,16 @@ export async function createSubmissionInFirestore(submission: ProofSubmission): 
 export async function fetchUserSubmissionsFromFirestore(userId: string): Promise<ProofSubmission[]> {
   if (!db || !userId) return [];
   try {
-    const q = query(
-      collection(db, 'submissions'),
-      where('userId', '==', userId),
-      orderBy('submittedAt', 'desc')
-    );
-    const snap = await getDocs(q);
-    return snap.docs.map(d => ({ id: d.id, ...d.data() } as ProofSubmission));
+    let snap;
+    try {
+      snap = await getDocs(query(collection(db, 'submissions'), where('userId', '==', userId)));
+    } catch {
+      snap = await getDocs(collection(db, 'submissions'));
+    }
+    const results = snap.docs
+      .map((d) => ({ id: d.id, ...d.data() } as ProofSubmission))
+      .filter((s) => s.userId === userId);
+    return results.sort((a, b) => new Date(b.submittedAt || 0).getTime() - new Date(a.submittedAt || 0).getTime());
   } catch (err) {
     console.warn('[Firestore] fetchUserSubmissions error:', err);
     return [];
@@ -276,8 +281,14 @@ export async function saveOrgProfileToFirestore(profile: OrganizationProfile): P
   return saveSettingToFirestore('orgProfile', profile);
 }
 
-export async function fetchOrgProfileFromFirestore(): Promise<OrganizationProfile | null> {
-  return fetchSettingFromFirestore<OrganizationProfile>('orgProfile');
+export async function fetchOrgProfileFromFirestore(): Promise<OrganizationProfile> {
+  const profile = await fetchSettingFromFirestore<OrganizationProfile>('orgProfile');
+  if (profile && profile.orgName) {
+    return profile;
+  }
+  // Automatically seed and return default profile if none exists yet
+  saveOrgProfileToFirestore(DEFAULT_ORGANIZATION_PROFILE).catch(() => {});
+  return DEFAULT_ORGANIZATION_PROFILE;
 }
 
 // ----------------------------------------------------
@@ -287,30 +298,26 @@ export async function fetchOrgProfileFromFirestore(): Promise<OrganizationProfil
 export async function fetchAdminSubmissionsFromFirestore(statusFilter?: string): Promise<ProofSubmission[]> {
   if (!db) return [];
   try {
-    let q;
+    let snap;
     if (statusFilter && statusFilter !== 'ALL') {
       try {
-        q = query(
-          collection(db, 'submissions'),
-          where('status', '==', statusFilter),
-          orderBy('submittedAt', 'desc')
-        );
-      } catch {
-        q = query(collection(db, 'submissions'), where('status', '==', statusFilter));
+        snap = await getDocs(query(collection(db, 'submissions'), where('status', '==', statusFilter)));
+      } catch (errFilter) {
+        console.warn('[Firestore] Status query failed, falling back to full collection read:', errFilter);
+        snap = await getDocs(collection(db, 'submissions'));
       }
     } else {
-      try {
-        q = query(collection(db, 'submissions'), orderBy('submittedAt', 'desc'));
-      } catch {
-        q = query(collection(db, 'submissions'));
-      }
+      snap = await getDocs(collection(db, 'submissions'));
     }
 
-    const snap = await getDocs(q);
-    const results = snap.docs.map((d) => ({ id: d.id, ...d.data() } as ProofSubmission));
+    let results = snap.docs.map((d) => ({ id: d.id, ...d.data() } as ProofSubmission));
 
-    // Client-side sort safety
-    return results.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
+    if (statusFilter && statusFilter !== 'ALL') {
+      results = results.filter((s) => s.status === statusFilter);
+    }
+
+    // Always sort by date descending in JavaScript safely
+    return results.sort((a, b) => new Date(b.submittedAt || 0).getTime() - new Date(a.submittedAt || 0).getTime());
   } catch (err) {
     console.warn('[Firestore] fetchAdminSubmissions error:', err);
     return [];
@@ -430,6 +437,140 @@ export async function fetchLeaderboardFromFirestore(): Promise<LeaderboardEntry[
   } catch (err) {
     console.warn('[Firestore] fetchLeaderboard error:', err);
     return [];
+  }
+}
+
+// ----------------------------------------------------
+// ADMIN USER MANAGEMENT & ROSTER
+// ----------------------------------------------------
+
+export async function checkIfUserIsAdminInFirestore(userId?: string, email?: string): Promise<boolean> {
+  if (!db) return false;
+  try {
+    if (userId) {
+      const snap = await getDoc(doc(db, 'admins', userId));
+      if (snap.exists() && snap.data()?.status === 'ACTIVE') return true;
+    }
+    if (email) {
+      const cleanEmail = email.toLowerCase().trim();
+      const snapEmail = await getDoc(doc(db, 'admins', cleanEmail));
+      if (snapEmail.exists() && snapEmail.data()?.status === 'ACTIVE') return true;
+      const q = query(
+        collection(db, 'admins'),
+        where('email', '==', cleanEmail),
+        where('status', '==', 'ACTIVE')
+      );
+      const snapQuery = await getDocs(q);
+      if (!snapQuery.empty) return true;
+    }
+    return false;
+  } catch (err) {
+    console.warn('[Firestore] checkIfUserIsAdmin error:', err);
+    return false;
+  }
+}
+
+export async function fetchAdminsFromFirestore(): Promise<AdminUserRecord[]> {
+  if (!db) return [];
+  try {
+    const q = query(collection(db, 'admins'));
+    const snap = await getDocs(q);
+    const admins = snap.docs.map((d) => ({ ...d.data() } as AdminUserRecord));
+    return admins;
+  } catch (err) {
+    console.warn('[Firestore] fetchAdmins error:', err);
+    return [];
+  }
+}
+
+export async function addAdminInFirestore(
+  email: string,
+  topAdmin: { id: string; email: string }
+): Promise<{ success: boolean; message: string; admin?: AdminUserRecord }> {
+  if (!db || !email) return { success: false, message: 'Invalid input' };
+  const cleanEmail = email.trim().toLowerCase();
+
+  try {
+    // Find registered user in Firestore
+    const usersSnap = await getDocs(
+      query(collection(db, 'users'), where('email', '==', cleanEmail))
+    );
+
+    let targetUserId = cleanEmail;
+    let targetUserName = cleanEmail.split('@')[0];
+
+    if (!usersSnap.empty) {
+      const uDoc = usersSnap.docs[0];
+      targetUserId = uDoc.id;
+      const uData = uDoc.data();
+      targetUserName = uData.fullName || targetUserName;
+
+      // Update user document role
+      await updateDoc(uDoc.ref, { role: 'ADMIN' });
+    }
+
+    const newAdminRecord: AdminUserRecord = {
+      adminId: 'adm_' + targetUserId,
+      userId: targetUserId,
+      email: cleanEmail,
+      name: targetUserName,
+      role: 'ADMIN',
+      status: 'ACTIVE',
+      createdAt: new Date().toISOString(),
+      createdBy: topAdmin.id,
+      creatorEmail: topAdmin.email,
+    };
+
+    // Store by user ID and by sanitized email
+    await setDoc(doc(db, 'admins', targetUserId), newAdminRecord);
+    if (targetUserId !== cleanEmail) {
+      await setDoc(doc(db, 'admins', cleanEmail), newAdminRecord);
+    }
+
+    return {
+      success: true,
+      message: `Successfully appointed ${targetUserName} (${cleanEmail}) as Administrator.`,
+      admin: newAdminRecord,
+    };
+  } catch (err: any) {
+    console.error('[Firestore] addAdmin error:', err);
+    throw new Error(err.message || 'Failed to appoint admin in Firestore.');
+  }
+}
+
+export async function setAdminStatusInFirestore(
+  adminIdOrUserId: string,
+  status: 'ACTIVE' | 'INACTIVE'
+): Promise<{ success: boolean; message: string }> {
+  if (!db || !adminIdOrUserId) return { success: false, message: 'Invalid identifier' };
+  try {
+    const adminRef = doc(db, 'admins', adminIdOrUserId);
+    await updateDoc(adminRef, { status });
+    return { success: true, message: `Admin status changed to ${status}.` };
+  } catch (err: any) {
+    console.error('[Firestore] setAdminStatus error:', err);
+    throw new Error(err.message || 'Failed to update admin status in Firestore.');
+  }
+}
+
+export async function removeAdminFromFirestore(
+  adminIdOrUserId: string
+): Promise<{ success: boolean; message: string }> {
+  if (!db || !adminIdOrUserId) return { success: false, message: 'Invalid identifier' };
+  try {
+    await deleteDoc(doc(db, 'admins', adminIdOrUserId));
+
+    // Also revert user role if user document exists
+    const userRef = doc(db, 'users', adminIdOrUserId);
+    const snap = await getDoc(userRef);
+    if (snap.exists()) {
+      await updateDoc(userRef, { role: 'REGISTERED_USER' });
+    }
+
+    return { success: true, message: 'Admin privileges revoked.' };
+  } catch (err: any) {
+    console.error('[Firestore] removeAdmin error:', err);
+    throw new Error(err.message || 'Failed to remove admin in Firestore.');
   }
 }
 

@@ -23,9 +23,9 @@ if (!fs.existsSync(DB_DIR)) {
 const DESIGNATED_TOP_ADMIN_UID = 'Bo6cQS55HedBDEADJtcdTyaHqNa2';
 
 // Cloudinary Configuration (Server-Side Only - Private Credentials Never Sent to Client)
-const CLOUDINARY_CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME;
-const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY;
-const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET;
+const CLOUDINARY_CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME || 'pmimncr8';
+const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY || '153486846846714';
+const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET || '1QE_63YApAs9RlqGEli65PwDG9c';
 
 const isCloudinaryConfigured = Boolean(
   CLOUDINARY_CLOUD_NAME && CLOUDINARY_API_KEY && CLOUDINARY_API_SECRET
@@ -188,7 +188,7 @@ const DEFAULT_IMPACT_SETTINGS = {
 };
 
 const DEFAULT_ORG_PROFILE = {
-  logoUrl: '/InShot_20260917_104354103.png',
+  logoUrl: '/InShot_20260917_104142121.png',
   logoPublicId: '',
   orgName: 'Awareness Global',
   movementName: 'Awareness Global Movement',
@@ -1575,7 +1575,7 @@ async function startServer() {
 
       db.orgProfile = {
         ...db.orgProfile,
-        logoUrl: logoUrl !== undefined ? String(logoUrl).trim() : (db.orgProfile.logoUrl || '/InShot_20260917_104354103.png'),
+        logoUrl: logoUrl !== undefined ? String(logoUrl).trim() : (db.orgProfile.logoUrl || '/InShot_20260917_104142121.png'),
         logoPublicId: logoPublicId !== undefined ? String(logoPublicId).trim() : (db.orgProfile.logoPublicId || ''),
         orgName: String(orgName).trim(),
         movementName: String(movementName).trim(),

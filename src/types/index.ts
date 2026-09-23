@@ -117,6 +117,32 @@ export interface OrganizationProfile {
   updatedBy: string;
 }
 
+export const DEFAULT_ORGANIZATION_PROFILE: OrganizationProfile = {
+  logoUrl: '/InShot_20260917_104142121.png',
+  logoPublicId: '',
+  orgName: 'Awareness Global',
+  movementName: 'Awareness Global Movement',
+  slogan: 'Stay Aware',
+  pillars: 'Educate. Unite. Act.',
+  mission: 'Unite the world through awareness to help solve global issues.',
+  description: 'An environmental behavioral-change movement under Awareness Global dedicated to eradicating single-use plastic bag consumption through reusable alternatives and verified community action.',
+  contactEmail: 'movement@awarenessglobal.org',
+  phone: '+1 (800) 555-AWARE',
+  website: 'https://sites.google.com/view/awarenessglobal/home',
+  location: 'Global / Lagos',
+  socialLinks: {
+    facebook: 'https://facebook.com/AwarenessGlobal',
+    twitter: 'https://twitter.com/AwarenessGlobal',
+    instagram: 'https://instagram.com/AwarenessGlobal',
+    linkedin: 'https://linkedin.com/company/awarenessglobal',
+    youtube: '',
+    tiktok: '',
+  },
+  registrationInfo: 'Registered Non-Profit Environmental Behavioral-Change Movement',
+  updatedAt: '2026-09-23T00:00:00.000Z',
+  updatedBy: 'SYSTEM',
+};
+
 export interface PaymentSettings {
   // PRIVATE ADMIN DATA (Never exposed to ordinary users)
   accountName: string;

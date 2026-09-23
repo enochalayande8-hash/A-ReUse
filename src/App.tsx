@@ -31,6 +31,7 @@ import {
   CommunityPost,
   ProofSubmission,
   OrganizationProfile,
+  DEFAULT_ORGANIZATION_PROFILE,
 } from './types';
 
 const MainContent: React.FC = () => {
@@ -51,7 +52,7 @@ const MainContent: React.FC = () => {
   const [communityPosts, setCommunityPosts] = useState<CommunityPost[]>([]);
   const [userSubmissions, setUserSubmissions] = useState<ProofSubmission[]>([]);
   const [pendingReviewsCount, setPendingReviewsCount] = useState<number>(0);
-  const [orgProfile, setOrgProfile] = useState<OrganizationProfile | undefined>(undefined);
+  const [orgProfile, setOrgProfile] = useState<OrganizationProfile>(DEFAULT_ORGANIZATION_PROFILE);
 
   // Fetch Public Data
   const fetchPublicData = async () => {
@@ -80,7 +81,7 @@ const MainContent: React.FC = () => {
         safePosts = await fetchCommunityPostsFromFirestore().catch(() => []);
       }
       if (!safeOrgProfile) {
-        safeOrgProfile = (await fetchOrgProfileFromFirestore().catch(() => null)) || undefined;
+        safeOrgProfile = (await fetchOrgProfileFromFirestore().catch(() => null)) || DEFAULT_ORGANIZATION_PROFILE;
       }
 
       let safeRank = rankRes.leaderboard || [];
@@ -92,7 +93,7 @@ const MainContent: React.FC = () => {
       setPrizes(safePrizes);
       setLeaderboard(safeRank);
       setCommunityPosts(safePosts);
-      if (safeOrgProfile) setOrgProfile(safeOrgProfile);
+      setOrgProfile(safeOrgProfile || DEFAULT_ORGANIZATION_PROFILE);
     } catch (err) {
       console.error('Failed to fetch public data:', err);
     }

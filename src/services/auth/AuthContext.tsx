@@ -14,7 +14,11 @@ import {
   googleProvider,
   formatFirebaseAuthError,
 } from '../firebase/firebaseAuth';
-import { saveUserToFirestore, getUserFromFirestore } from '../firebase/firestoreService';
+import {
+  saveUserToFirestore,
+  getUserFromFirestore,
+  checkIfUserIsAdminInFirestore,
+} from '../firebase/firestoreService';
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
@@ -70,7 +74,14 @@ async function resolveUserSession(
   }
 
   if (existingUser) {
-    if (isTopAdmin) existingUser.role = 'TOP_ADMIN';
+    if (isTopAdmin) {
+      existingUser.role = 'TOP_ADMIN';
+    } else {
+      const isAppointed = await checkIfUserIsAdminInFirestore(fbUser.uid, cleanEmail);
+      if (isAppointed) {
+        existingUser.role = 'ADMIN';
+      }
+    }
     if (customFullName && !existingUser.fullName) {
       existingUser.fullName = customFullName;
     }
@@ -79,12 +90,18 @@ async function resolveUserSession(
   }
 
   // 3. New user profile initialization in Firestore
+  let initialRole: 'TOP_ADMIN' | 'ADMIN' | 'REGISTERED_USER' = isTopAdmin ? 'TOP_ADMIN' : 'REGISTERED_USER';
+  if (!isTopAdmin) {
+    const isAppointed = await checkIfUserIsAdminInFirestore(fbUser.uid, cleanEmail);
+    if (isAppointed) initialRole = 'ADMIN';
+  }
+
   const newUser: User = {
     id: fbUser.uid,
     firebaseUid: fbUser.uid,
     email: cleanEmail,
     fullName: customFullName || fbUser.displayName || cleanEmail.split('@')[0] || 'Movement Member',
-    role: isTopAdmin ? 'TOP_ADMIN' : 'REGISTERED_USER',
+    role: initialRole,
     accountStatus: 'ACTIVE',
     createdAt: new Date().toISOString(),
     verifiedActionsCount: 0,
@@ -463,7 +480,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const isTopAdmin = user?.role === 'TOP_ADMIN';
+  const isTopAdmin =
+    user?.role === 'TOP_ADMIN' ||
+    isDesignatedTopAdmin(user?.email, user?.id || (user as any)?.firebaseUid);
   const isAdmin = user?.role === 'ADMIN' || isTopAdmin;
   const isAuthenticated = !!user;
 

@@ -4,6 +4,7 @@ import { useAuth } from '../services/auth/AuthContext';
 import { api } from '../services/api';
 import { createSubmissionInFirestore } from '../services/firebase/firestoreService';
 import { EmptyState } from '../components/EmptyState';
+import { ImageModal } from '../components/ImageModal';
 import {
   UploadCloud,
   CheckCircle2,
@@ -39,6 +40,7 @@ export const ProofPage: React.FC<ProofPageProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [previewModalSubmission, setPreviewModalSubmission] = useState<ProofSubmission | null>(null);
 
   // Compress image file to lightweight canvas JPEG to ensure rapid uploads and fit comfortably in Firestore
   const compressImageFile = (file: File): Promise<string> => {
@@ -451,15 +453,14 @@ export const ProofPage: React.FC<ProofPageProps> = ({
                   {/* Evidence thumbnail preview if available */}
                   {(sub.proofImageUrl || sub.evidenceUrl) && (
                     <div className="pt-1 flex items-center gap-2">
-                      <a
-                        href={sub.proofImageUrl || sub.evidenceUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#8b6508] hover:text-[#40281d] underline"
+                      <button
+                        type="button"
+                        onClick={() => setPreviewModalSubmission(sub)}
+                        className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#8b6508] hover:text-[#40281d] underline cursor-pointer"
                       >
                         <ImageIcon className="w-3.5 h-3.5 text-[#e2a72e]" />
                         <span>View Submitted Evidence</span>
-                      </a>
+                      </button>
                       {sub.cloudinaryPublicId && (
                         <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-[#dce8d8] text-[#365646] border border-[#c4d9bf]">
                           Cloudinary
@@ -499,6 +500,21 @@ export const ProofPage: React.FC<ProofPageProps> = ({
           )}
         </div>
       </div>
+      {/* Image Modal Lightbox Popup */}
+      {previewModalSubmission && (
+        <ImageModal
+          isOpen={!!previewModalSubmission}
+          onClose={() => setPreviewModalSubmission(null)}
+          imageUrl={previewModalSubmission.proofImageUrl || previewModalSubmission.evidenceUrl || ''}
+          title={`Proof Evidence - ${previewModalSubmission.actionType.replace(/_/g, ' ')}`}
+          submitterName={previewModalSubmission.userName}
+          submitterEmail={previewModalSubmission.userEmail}
+          submittedAt={previewModalSubmission.submittedAt}
+          actionType={previewModalSubmission.actionType}
+          cloudinaryPublicId={previewModalSubmission.cloudinaryPublicId}
+          status={previewModalSubmission.status}
+        />
+      )}
     </div>
   );
 };

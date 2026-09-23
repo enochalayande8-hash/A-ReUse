@@ -7,6 +7,7 @@ import {
   reviewSubmissionInFirestore,
 } from '../services/firebase/firestoreService';
 import { EmptyState } from '../components/EmptyState';
+import { ImageModal } from '../components/ImageModal';
 import {
   ShieldCheck,
   CheckCircle,
@@ -38,6 +39,7 @@ export const AdminReviewPage: React.FC<AdminReviewPageProps> = ({ onReviewComple
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [imageLoadError, setImageLoadError] = useState(false);
+  const [modalImageSubmission, setModalImageSubmission] = useState<ProofSubmission | null>(null);
 
   const fetchSubmissions = async () => {
     setIsLoading(true);
@@ -235,7 +237,7 @@ export const AdminReviewPage: React.FC<AdminReviewPageProps> = ({ onReviewComple
                       </span>
                     )}
                   </div>
-                  <div className="rounded-xl overflow-hidden border border-[#2C1810]/15 max-h-60 bg-black/5">
+                  <div className="relative group rounded-xl overflow-hidden border border-[#2C1810]/15 max-h-60 bg-black/5">
                     {imageLoadError ? (
                       <div className="p-6 text-center space-y-2 bg-rose-50/70 border border-rose-200 rounded-xl">
                         <AlertCircle className="w-6 h-6 text-rose-600 mx-auto" />
@@ -244,24 +246,34 @@ export const AdminReviewPage: React.FC<AdminReviewPageProps> = ({ onReviewComple
                           The evidence image could not be loaded securely. The storage link may be expired, private, or temporarily unreachable.
                         </p>
                         {(selectedSubmission.proofImageUrl || selectedSubmission.evidenceUrl) && (
-                          <a
-                            href={selectedSubmission.proofImageUrl || selectedSubmission.evidenceUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1 text-xs text-rose-700 underline font-semibold mt-1 hover:text-rose-900"
+                          <button
+                            type="button"
+                            onClick={() => setModalImageSubmission(selectedSubmission)}
+                            className="inline-flex items-center gap-1 text-xs text-rose-700 underline font-semibold mt-1 hover:text-rose-900 cursor-pointer"
                           >
                             <ExternalLink className="w-3.5 h-3.5" />
-                            <span>Try Opening Directly</span>
-                          </a>
+                            <span>Try Opening In Viewer</span>
+                          </button>
                         )}
                       </div>
                     ) : (
-                      <img
-                        src={selectedSubmission.proofImageUrl || selectedSubmission.evidenceUrl}
-                        alt="Submitted Proof"
-                        onError={() => setImageLoadError(true)}
-                        className="w-full h-60 object-cover"
-                      />
+                      <>
+                        <img
+                          src={selectedSubmission.proofImageUrl || selectedSubmission.evidenceUrl}
+                          alt="Submitted Proof"
+                          onError={() => setImageLoadError(true)}
+                          onClick={() => setModalImageSubmission(selectedSubmission)}
+                          className="w-full h-60 object-cover cursor-zoom-in transition-transform duration-200 hover:scale-102"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setModalImageSubmission(selectedSubmission)}
+                          className="absolute bottom-2 right-2 px-2.5 py-1 rounded-lg bg-black/75 hover:bg-black text-white text-[11px] font-bold flex items-center gap-1 backdrop-blur-xs cursor-pointer shadow-md"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          <span>Pop Up Photo</span>
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -410,15 +422,14 @@ export const AdminReviewPage: React.FC<AdminReviewPageProps> = ({ onReviewComple
                 <div className="flex flex-wrap items-center gap-3 text-[11px] text-[#8D6E63] pt-1">
                   <span>Submitted: {new Date(sub.submittedAt).toLocaleDateString()}</span>
                   {(sub.proofImageUrl || sub.evidenceUrl) && (
-                    <a
-                      href={sub.proofImageUrl || sub.evidenceUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 font-semibold text-[#2C1810] underline hover:text-[#8D6E63]"
+                    <button
+                      type="button"
+                      onClick={() => setModalImageSubmission(sub)}
+                      className="inline-flex items-center gap-1 font-semibold text-[#2C1810] underline hover:text-[#8D6E63] cursor-pointer"
                     >
                       <ExternalLink className="w-3 h-3 text-[#D4AF37]" />
                       <span>Inspect Evidence Image</span>
-                    </a>
+                    </button>
                   )}
                   {sub.cloudinaryPublicId && (
                     <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
@@ -464,6 +475,21 @@ export const AdminReviewPage: React.FC<AdminReviewPageProps> = ({ onReviewComple
             </div>
           ))}
         </div>
+      )}
+      {/* Image Modal Lightbox Popup */}
+      {modalImageSubmission && (
+        <ImageModal
+          isOpen={!!modalImageSubmission}
+          onClose={() => setModalImageSubmission(null)}
+          imageUrl={modalImageSubmission.proofImageUrl || modalImageSubmission.evidenceUrl || ''}
+          title={`Review Evidence - ${modalImageSubmission.actionType.replace(/_/g, ' ')}`}
+          submitterName={modalImageSubmission.userName}
+          submitterEmail={modalImageSubmission.userEmail}
+          submittedAt={modalImageSubmission.submittedAt}
+          actionType={modalImageSubmission.actionType}
+          cloudinaryPublicId={modalImageSubmission.cloudinaryPublicId}
+          status={modalImageSubmission.status}
+        />
       )}
     </div>
   );
