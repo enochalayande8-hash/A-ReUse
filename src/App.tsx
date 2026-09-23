@@ -16,6 +16,13 @@ import { AdminReviewPage } from './pages/AdminReviewPage';
 import { TopAdminPanel } from './pages/TopAdminPanel';
 import { api } from './services/api';
 import {
+  fetchChallengesFromFirestore,
+  fetchPrizesFromFirestore,
+  fetchCommunityPostsFromFirestore,
+  fetchOrgProfileFromFirestore,
+  fetchUserSubmissionsFromFirestore,
+} from './services/firebase/firestoreService';
+import {
   Challenge,
   Prize,
   LeaderboardEntry,
@@ -55,11 +62,30 @@ const MainContent: React.FC = () => {
         api.getOrgProfile().catch(() => ({ profile: undefined })),
       ]);
 
-      setChallenges(chRes.challenges || []);
-      setPrizes(przRes.prizes || []);
+      let safeChallenges = chRes.challenges || [];
+      let safePrizes = przRes.prizes || [];
+      let safePosts = postRes.posts || [];
+      let safeOrgProfile = orgRes.profile;
+
+      // Firestore cloud fallbacks for static hosting platforms like Vercel
+      if (safeChallenges.length === 0) {
+        safeChallenges = await fetchChallengesFromFirestore().catch(() => []);
+      }
+      if (safePrizes.length === 0) {
+        safePrizes = await fetchPrizesFromFirestore().catch(() => []);
+      }
+      if (safePosts.length === 0) {
+        safePosts = await fetchCommunityPostsFromFirestore().catch(() => []);
+      }
+      if (!safeOrgProfile) {
+        safeOrgProfile = (await fetchOrgProfileFromFirestore().catch(() => null)) || undefined;
+      }
+
+      setChallenges(safeChallenges);
+      setPrizes(safePrizes);
       setLeaderboard(rankRes.leaderboard || []);
-      setCommunityPosts(postRes.posts || []);
-      if (orgRes.profile) setOrgProfile(orgRes.profile);
+      setCommunityPosts(safePosts);
+      if (safeOrgProfile) setOrgProfile(safeOrgProfile);
     } catch (err) {
       console.error('Failed to fetch public data:', err);
     }
@@ -75,7 +101,11 @@ const MainContent: React.FC = () => {
 
     try {
       const subRes = await api.getMySubmissions().catch(() => ({ submissions: [] }));
-      setUserSubmissions(subRes.submissions || []);
+      let subs = subRes.submissions || [];
+      if (subs.length === 0 && user?.id) {
+        subs = await fetchUserSubmissionsFromFirestore(user.id).catch(() => []);
+      }
+      setUserSubmissions(subs);
 
       if (isAdmin) {
         const adminSubRes = await api.getAdminSubmissions('PENDING').catch(() => ({ submissions: [] }));

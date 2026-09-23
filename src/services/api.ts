@@ -46,15 +46,35 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const response = await fetch(endpoint, {
-    ...options,
-    headers,
-  });
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      ...options,
+      headers,
+    });
+  } catch (err: any) {
+    throw new Error('Network connection failed. Please check your internet connection.');
+  }
 
-  const data = await response.json().catch(() => ({}));
+  // Detect HTML responses (which happen when a static hosting environment rewrites 404 to index.html)
+  const contentType = response.headers.get('content-type') || '';
+  const isJson = contentType.includes('application/json');
 
-  if (!response.ok) {
-    const errorMsg = data.error || response.statusText || 'An error occurred';
+  let data: any = {};
+  if (isJson) {
+    data = await response.json().catch(() => ({}));
+  }
+
+  if (!response.ok || !isJson) {
+    if (!isJson && response.status === 200) {
+      throw new Error('API route is not configured on this static host.');
+    }
+    const errorMsg =
+      data?.error ||
+      data?.message ||
+      (response.status === 404
+        ? 'Service endpoint not found.'
+        : response.statusText || 'Unable to connect to authentication server.');
     throw new Error(errorMsg);
   }
 
