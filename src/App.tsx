@@ -21,6 +21,8 @@ import {
   fetchCommunityPostsFromFirestore,
   fetchOrgProfileFromFirestore,
   fetchUserSubmissionsFromFirestore,
+  fetchAdminSubmissionsFromFirestore,
+  fetchLeaderboardFromFirestore,
 } from './services/firebase/firestoreService';
 import {
   Challenge,
@@ -81,9 +83,14 @@ const MainContent: React.FC = () => {
         safeOrgProfile = (await fetchOrgProfileFromFirestore().catch(() => null)) || undefined;
       }
 
+      let safeRank = rankRes.leaderboard || [];
+      if (safeRank.length === 0) {
+        safeRank = await fetchLeaderboardFromFirestore().catch(() => []);
+      }
+
       setChallenges(safeChallenges);
       setPrizes(safePrizes);
-      setLeaderboard(rankRes.leaderboard || []);
+      setLeaderboard(safeRank);
       setCommunityPosts(safePosts);
       if (safeOrgProfile) setOrgProfile(safeOrgProfile);
     } catch (err) {
@@ -108,8 +115,16 @@ const MainContent: React.FC = () => {
       setUserSubmissions(subs);
 
       if (isAdmin) {
-        const adminSubRes = await api.getAdminSubmissions('PENDING').catch(() => ({ submissions: [] }));
-        setPendingReviewsCount(adminSubRes.submissions?.length || 0);
+        let count = 0;
+        try {
+          const adminSubRes = await api.getAdminSubmissions('PENDING');
+          count = adminSubRes.submissions?.length || 0;
+        } catch {
+          // Check directly in Firestore
+          const pendingSubs = await fetchAdminSubmissionsFromFirestore('PENDING').catch(() => []);
+          count = pendingSubs.length;
+        }
+        setPendingReviewsCount(count);
       }
     } catch (err) {
       console.error('Failed to fetch user submissions:', err);

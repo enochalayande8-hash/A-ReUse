@@ -74,7 +74,11 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
       data?.message ||
       (response.status === 404
         ? 'Service endpoint not found.'
-        : response.statusText || 'Unable to connect to authentication server.');
+        : response.status === 401
+        ? 'Session expired or authentication required.'
+        : response.status === 403
+        ? 'Access forbidden.'
+        : response.statusText || 'Unable to complete request.');
     throw new Error(errorMsg);
   }
 

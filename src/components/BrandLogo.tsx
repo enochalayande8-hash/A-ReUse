@@ -1,4 +1,7 @@
 import React from 'react';
+import movementLogoAsset from '../assets/images/InShot_20260917_104142121.png';
+
+export const HARDCODED_MOVEMENT_LOGO = movementLogoAsset;
 
 interface AwarenessEmblemProps {
   className?: string;
@@ -7,16 +10,15 @@ interface AwarenessEmblemProps {
 }
 
 /**
- * Original Awareness Global Logo Asset
+ * Hardcoded Awareness Global Movement Logo Asset
  * Preserves the exact emblem asset with proportional display,
  * true transparent background, and crisp rendering.
- * Dynamically supports saved organization profile logo if configured.
  */
 export const AwarenessEmblem: React.FC<AwarenessEmblemProps> = ({
   className = 'w-10 h-10',
   src,
 }) => {
-  const imageSource = src || '/InShot_20260917_104354103.png';
+  const imageSource = src || movementLogoAsset;
 
   return (
     <img
@@ -26,8 +28,8 @@ export const AwarenessEmblem: React.FC<AwarenessEmblemProps> = ({
       draggable={false}
       onError={(e) => {
         const target = e.currentTarget;
-        if (target.src !== window.location.origin + '/awareness-logo.png') {
-          target.src = '/awareness-logo.png';
+        if (target.src !== movementLogoAsset) {
+          target.src = movementLogoAsset;
         }
       }}
     />

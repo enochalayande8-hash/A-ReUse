@@ -41,7 +41,15 @@ import {
   RotateCcw,
   X,
 } from 'lucide-react';
-import { saveOrgProfileToFirestore } from '../services/firebase/firestoreService';
+import {
+  saveOrgProfileToFirestore,
+  fetchRegisteredUsersFromFirestore,
+  saveChallengeToFirestore,
+  deleteChallengeFromFirestore,
+  savePrizeToFirestore,
+  deletePrizeFromFirestore,
+  saveSettingToFirestore,
+} from '../services/firebase/firestoreService';
 
 interface TopAdminPanelProps {
   challenges: Challenge[];
@@ -126,7 +134,13 @@ export const TopAdminPanel: React.FC<TopAdminPanelProps> = ({
 
       if (statsRes.stats) setStats(statsRes.stats);
       if (adminsRes.admins) setAdmins(adminsRes.admins);
-      if (usersRes.users) setRegisteredUsers(usersRes.users);
+
+      let resolvedUsers = usersRes.users || [];
+      if (resolvedUsers.length === 0) {
+        resolvedUsers = await fetchRegisteredUsersFromFirestore().catch(() => []);
+      }
+      setRegisteredUsers(resolvedUsers);
+
       if (auditRes.auditLogs) setAuditLogs(auditRes.auditLogs);
       if (impactRes.settings) setImpactSettings(impactRes.settings);
       if (orgRes.profile) setOrgProfile(orgRes.profile);
@@ -152,7 +166,25 @@ export const TopAdminPanel: React.FC<TopAdminPanelProps> = ({
     e.preventDefault();
     if (!challengeForm.title || !challengeForm.description) return;
     try {
-      await api.createChallenge(challengeForm);
+      await api.createChallenge(challengeForm).catch(async () => {
+        const now = new Date();
+        const future = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+        const newChallenge: Challenge = {
+          id: 'ch_' + Date.now(),
+          title: challengeForm.title || '',
+          description: challengeForm.description || '',
+          startDate: challengeForm.startDate || now.toISOString().split('T')[0],
+          endDate: challengeForm.endDate || future.toISOString().split('T')[0],
+          pointsReward: challengeForm.pointsReward || 25,
+          eligibilityRequirements: challengeForm.eligibilityRequirements || 'All registered members',
+          status: (challengeForm.status as any) || 'ACTIVE',
+          rules: challengeForm.rules || ['Must use reusable bags during shopping'],
+          requiredActions: challengeForm.requiredActions || ['Use reusable bag for shopping trip'],
+          createdAt: now.toISOString(),
+          createdBy: user?.id || 'admin',
+        };
+        await saveChallengeToFirestore(newChallenge);
+      });
       showMsg('success', 'Challenge created and published successfully.');
       setShowChallengeForm(false);
       setChallengeForm({
@@ -174,7 +206,9 @@ export const TopAdminPanel: React.FC<TopAdminPanelProps> = ({
   const handleDeleteChallenge = async (id: string) => {
     if (!confirm('Are you sure you want to delete this challenge?')) return;
     try {
-      await api.deleteChallenge(id);
+      await api.deleteChallenge(id).catch(async () => {
+        await deleteChallengeFromFirestore(id);
+      });
       showMsg('success', 'Challenge deleted.');
       onRefreshData();
       loadAllAdminData();
@@ -188,7 +222,20 @@ export const TopAdminPanel: React.FC<TopAdminPanelProps> = ({
     e.preventDefault();
     if (!prizeForm.title || !prizeForm.value) return;
     try {
-      await api.createPrize(prizeForm);
+      await api.createPrize(prizeForm).catch(async () => {
+        const newPrize: Prize = {
+          id: 'prz_' + Date.now(),
+          title: prizeForm.title || '',
+          description: prizeForm.description || '',
+          value: prizeForm.value || '$100 Movement Grant',
+          eligibility: prizeForm.eligibility || 'Top verified contributors',
+          competitionPeriod: prizeForm.competitionPeriod || 'Current Month',
+          status: (prizeForm.status as any) || 'ACTIVE',
+          createdAt: new Date().toISOString(),
+          createdBy: user?.id || 'admin',
+        };
+        await savePrizeToFirestore(newPrize);
+      });
       showMsg('success', 'Prize declared and published.');
       setShowPrizeForm(false);
       setPrizeForm({
@@ -209,7 +256,9 @@ export const TopAdminPanel: React.FC<TopAdminPanelProps> = ({
   const handleDeletePrize = async (id: string) => {
     if (!confirm('Are you sure you want to remove this prize?')) return;
     try {
-      await api.deletePrize(id);
+      await api.deletePrize(id).catch(async () => {
+        await deletePrizeFromFirestore(id);
+      });
       showMsg('success', 'Prize removed.');
       onRefreshData();
       loadAllAdminData();
@@ -267,7 +316,10 @@ export const TopAdminPanel: React.FC<TopAdminPanelProps> = ({
     e.preventDefault();
     if (!impactSettings) return;
     try {
-      await api.updateImpactSettings(impactSettings);
+      await api.updateImpactSettings(impactSettings).catch(async (err) => {
+        console.warn('Backend updateImpactSettings unavailable, saving to Firestore:', err);
+      });
+      await saveSettingToFirestore('impactSettings', impactSettings);
       showMsg('success', 'Impact calculation settings updated. All verified figures recalculated.');
       loadAllAdminData();
     } catch (err: any) {
@@ -310,7 +362,7 @@ export const TopAdminPanel: React.FC<TopAdminPanelProps> = ({
     if (orgProfile) {
       setOrgProfile({
         ...orgProfile,
-        logoUrl: '/InShot_20260917_104354103.png',
+        logoUrl: '/InShot_20260917_104142121.png',
         logoPublicId: '',
       });
     }
@@ -323,7 +375,7 @@ export const TopAdminPanel: React.FC<TopAdminPanelProps> = ({
     setLogoUploadError(null);
 
     try {
-      let finalLogoUrl = orgProfile.logoUrl || '/InShot_20260917_104354103.png';
+      let finalLogoUrl = orgProfile.logoUrl || '/InShot_20260917_104142121.png';
       let finalLogoPublicId = orgProfile.logoPublicId || '';
 
       // If user selected a new logo preview (base64 image), upload it securely to Cloudinary
@@ -350,8 +402,13 @@ export const TopAdminPanel: React.FC<TopAdminPanelProps> = ({
         logoPublicId: finalLogoPublicId,
       };
 
-      const res = await api.updateOrgProfile(updatedProfile);
-      const savedProfile = res.profile || updatedProfile;
+      let savedProfile = updatedProfile;
+      try {
+        const res = await api.updateOrgProfile(updatedProfile);
+        if (res && res.profile) savedProfile = res.profile;
+      } catch (apiErr) {
+        console.warn('Backend updateOrgProfile failed, persisting to Firestore:', apiErr);
+      }
       setOrgProfile(savedProfile);
       setLogoPreview(null);
 
@@ -373,7 +430,10 @@ export const TopAdminPanel: React.FC<TopAdminPanelProps> = ({
     e.preventDefault();
     if (!paymentSettings) return;
     try {
-      await api.updateAdminPaymentSettings(paymentSettings);
+      await api.updateAdminPaymentSettings(paymentSettings).catch(async (err) => {
+        console.warn('Backend updateAdminPaymentSettings unavailable, saving to Firestore:', err);
+      });
+      await saveSettingToFirestore('paymentSettings', paymentSettings);
       showMsg('success', 'Banking and payment settings updated.');
       loadAllAdminData();
     } catch (err: any) {
@@ -972,14 +1032,14 @@ export const TopAdminPanel: React.FC<TopAdminPanelProps> = ({
               {/* Logo Display Box */}
               <div className="relative w-24 h-24 rounded-2xl bg-white border border-[#2C1810]/15 p-2 flex items-center justify-center shrink-0 shadow-xs">
                 <img
-                  src={logoPreview || orgProfile.logoUrl || '/InShot_20260917_104354103.png'}
+                  src={logoPreview || orgProfile.logoUrl || '/InShot_20260917_104142121.png'}
                   alt="Organization Logo"
                   className="w-full h-full object-contain select-none"
                   draggable={false}
                   onError={(e) => {
                     const target = e.currentTarget;
-                    if (target.src !== window.location.origin + '/awareness-logo.png') {
-                      target.src = '/awareness-logo.png';
+                    if (target.src !== window.location.origin + '/InShot_20260917_104142121.png') {
+                      target.src = '/InShot_20260917_104142121.png';
                     }
                   }}
                 />

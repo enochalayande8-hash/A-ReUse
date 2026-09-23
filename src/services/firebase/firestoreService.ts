@@ -3,6 +3,7 @@ import {
   getDoc,
   setDoc,
   updateDoc,
+  deleteDoc,
   collection,
   query,
   where,
@@ -21,6 +22,7 @@ import {
   ImpactSettings,
   OrganizationProfile,
   PaymentSettings,
+  LeaderboardEntry,
 } from '../../types';
 
 /**
@@ -277,3 +279,157 @@ export async function saveOrgProfileToFirestore(profile: OrganizationProfile): P
 export async function fetchOrgProfileFromFirestore(): Promise<OrganizationProfile | null> {
   return fetchSettingFromFirestore<OrganizationProfile>('orgProfile');
 }
+
+// ----------------------------------------------------
+// ADMIN SUBMISSIONS MANAGEMENT
+// ----------------------------------------------------
+
+export async function fetchAdminSubmissionsFromFirestore(statusFilter?: string): Promise<ProofSubmission[]> {
+  if (!db) return [];
+  try {
+    let q;
+    if (statusFilter && statusFilter !== 'ALL') {
+      try {
+        q = query(
+          collection(db, 'submissions'),
+          where('status', '==', statusFilter),
+          orderBy('submittedAt', 'desc')
+        );
+      } catch {
+        q = query(collection(db, 'submissions'), where('status', '==', statusFilter));
+      }
+    } else {
+      try {
+        q = query(collection(db, 'submissions'), orderBy('submittedAt', 'desc'));
+      } catch {
+        q = query(collection(db, 'submissions'));
+      }
+    }
+
+    const snap = await getDocs(q);
+    const results = snap.docs.map((d) => ({ id: d.id, ...d.data() } as ProofSubmission));
+
+    // Client-side sort safety
+    return results.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
+  } catch (err) {
+    console.warn('[Firestore] fetchAdminSubmissions error:', err);
+    return [];
+  }
+}
+
+export async function reviewSubmissionInFirestore(
+  submissionId: string,
+  reviewData: {
+    status: 'APPROVED' | 'REJECTED';
+    reviewNote?: string;
+    customPoints?: number;
+  },
+  reviewerUser?: User | null
+): Promise<{ success: boolean; message: string }> {
+  if (!db || !submissionId) return { success: false, message: 'Database unavailable' };
+
+  try {
+    const subRef = doc(db, 'submissions', submissionId);
+    const subSnap = await getDoc(subRef);
+    if (!subSnap.exists()) {
+      return { success: false, message: 'Submission not found' };
+    }
+
+    const currentSub = subSnap.data() as ProofSubmission;
+    const pointsAwarded = reviewData.status === 'APPROVED' ? (reviewData.customPoints || 10) : 0;
+    const bagsAvoided = reviewData.status === 'APPROVED' ? 1 : 0;
+    const co2eGramsMin = reviewData.status === 'APPROVED' ? 25 : 0;
+    const co2eGramsMax = reviewData.status === 'APPROVED' ? 50 : 0;
+
+    const updatePayload: Partial<ProofSubmission> = {
+      status: reviewData.status,
+      reviewedBy: reviewerUser?.id || 'admin',
+      reviewerEmail: reviewerUser?.email || 'admin@movement.org',
+      reviewedAt: new Date().toISOString(),
+      reviewNote: reviewData.reviewNote || '',
+      pointsAwarded,
+      bagsAvoided,
+      co2eGramsMin,
+      co2eGramsMax,
+    };
+
+    await updateDoc(subRef, updatePayload);
+
+    // If approved, update user's cumulative verified metrics
+    if (reviewData.status === 'APPROVED' && currentSub.userId) {
+      const userRef = doc(db, 'users', currentSub.userId);
+      const userSnap = await getDoc(userRef);
+      if (userSnap.exists()) {
+        const u = userSnap.data() as User;
+        await updateDoc(userRef, {
+          verifiedPoints: (u.verifiedPoints || 0) + pointsAwarded,
+          verifiedActionsCount: (u.verifiedActionsCount || 0) + 1,
+          verifiedReusableBagUses: (u.verifiedReusableBagUses || 0) + 1,
+          verifiedBagsAvoided: (u.verifiedBagsAvoided || 0) + bagsAvoided,
+          verifiedCo2eAvoidedGramsMin: (u.verifiedCo2eAvoidedGramsMin || 0) + co2eGramsMin,
+          verifiedCo2eAvoidedGramsMax: (u.verifiedCo2eAvoidedGramsMax || 0) + co2eGramsMax,
+        });
+      }
+    }
+
+    return {
+      success: true,
+      message: `Submission ${reviewData.status === 'APPROVED' ? 'approved' : 'rejected'} successfully!`,
+    };
+  } catch (err: any) {
+    console.error('[Firestore] reviewSubmission error:', err);
+    throw new Error(err.message || 'Failed to record review in Firestore');
+  }
+}
+
+export async function fetchRegisteredUsersFromFirestore(): Promise<User[]> {
+  if (!db) return [];
+  try {
+    const q = query(collection(db, 'users'));
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() } as User));
+  } catch (err) {
+    console.warn('[Firestore] fetchRegisteredUsers error:', err);
+    return [];
+  }
+}
+
+export async function deleteChallengeFromFirestore(id: string): Promise<void> {
+  if (!db || !id) return;
+  try {
+    await deleteDoc(doc(db, 'challenges', id));
+  } catch (err) {
+    console.warn('[Firestore] deleteChallenge error:', err);
+  }
+}
+
+export async function deletePrizeFromFirestore(id: string): Promise<void> {
+  if (!db || !id) return;
+  try {
+    await deleteDoc(doc(db, 'prizes', id));
+  } catch (err) {
+    console.warn('[Firestore] deletePrize error:', err);
+  }
+}
+
+export async function fetchLeaderboardFromFirestore(): Promise<LeaderboardEntry[]> {
+  if (!db) return [];
+  try {
+    const users = await fetchRegisteredUsersFromFirestore();
+    return users
+      .filter((u) => (u.verifiedPoints || 0) > 0)
+      .sort((a, b) => (b.verifiedPoints || 0) - (a.verifiedPoints || 0))
+      .map((u, index) => ({
+        userId: u.id,
+        userName: u.fullName || u.email.split('@')[0],
+        position: index + 1,
+        verifiedPoints: u.verifiedPoints || 0,
+        verifiedActionsCount: u.verifiedActionsCount || 0,
+        verifiedBagsAvoided: u.verifiedBagsAvoided || 0,
+      }));
+  } catch (err) {
+    console.warn('[Firestore] fetchLeaderboard error:', err);
+    return [];
+  }
+}
+

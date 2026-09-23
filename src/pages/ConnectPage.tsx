@@ -50,17 +50,49 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
     setError(null);
 
     try {
-      const res = await api.createCommunityPost({
-        title: title.trim(),
-        content: content.trim(),
-        category,
-      });
+      let createdPost: CommunityPost | null = null;
+      let successMessage = 'Post shared with the movement!';
 
-      if (res && res.post) {
-        addCommunityPostToFirestore(res.post).catch(() => {});
+      try {
+        const res = await api.createCommunityPost({
+          title: title.trim(),
+          content: content.trim(),
+          category,
+        });
+
+        if (res && res.post) {
+          createdPost = res.post;
+          if (res.message) successMessage = res.message;
+          await addCommunityPostToFirestore(res.post).catch(() => {});
+        }
+      } catch (apiErr) {
+        console.warn('[ConnectPage] Backend community post endpoint unavailable, saving directly to Firestore:', apiErr);
       }
 
-      setSuccessMsg('Post shared with the movement!');
+      // If backend was unavailable (e.g. Vercel deployment), persist directly to Firestore
+      if (!createdPost && user) {
+        const validCategory: CommunityPost['category'] =
+          category === 'CAMPAIGN' || category === 'DISCUSSION' || category === 'ACHIEVEMENT' || category === 'INITIATIVE'
+            ? category
+            : 'DISCUSSION';
+
+        const newPostId = 'post_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+        const newPost: CommunityPost = {
+          id: newPostId,
+          userId: user.id,
+          userName: user.fullName || user.email.split('@')[0],
+          title: title.trim(),
+          content: content.trim(),
+          category: validCategory,
+          createdAt: new Date().toISOString(),
+          likesCount: 0,
+        };
+
+        await addCommunityPostToFirestore(newPost);
+        createdPost = newPost;
+      }
+
+      setSuccessMsg(successMessage);
       setTitle('');
       setContent('');
       onPostCreated();
@@ -69,6 +101,7 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
         setSuccessMsg(null);
       }, 1200);
     } catch (err: any) {
+      console.error('[ConnectPage] Publish post error:', err);
       setError(err.message || 'Failed to publish post.');
     } finally {
       setIsLoading(false);

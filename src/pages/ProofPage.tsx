@@ -40,8 +40,46 @@ export const ProofPage: React.FC<ProofPageProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  // File upload handler (reads file to base64 data URL for instant evidence verification)
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Compress image file to lightweight canvas JPEG to ensure rapid uploads and fit comfortably in Firestore
+  const compressImageFile = (file: File): Promise<string> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const src = e.target?.result as string;
+        const img = new Image();
+        img.onload = () => {
+          const maxDim = 1000;
+          let { width, height } = img;
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height);
+            resolve(canvas.toDataURL('image/jpeg', 0.8));
+          } else {
+            resolve(src);
+          }
+        };
+        img.onerror = () => resolve(src);
+        img.src = src;
+      };
+      reader.onerror = () => resolve('');
+      reader.readAsDataURL(file);
+    });
+  };
+
+  // File upload handler
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -50,24 +88,24 @@ export const ProofPage: React.FC<ProofPageProps> = ({
       return;
     }
 
-    if (file.size > 5 * 1024 * 1024) {
-      setError('Image file size must be less than 5MB.');
+    if (file.size > 15 * 1024 * 1024) {
+      setError('Image file size must be less than 15MB.');
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      setFilePreview(result);
-      setEvidenceUrl(result);
+    try {
+      const compressedDataUrl = await compressImageFile(file);
+      setFilePreview(compressedDataUrl);
+      setEvidenceUrl(compressedDataUrl);
       setError(null);
-    };
-    reader.readAsDataURL(file);
+    } catch {
+      setError('Failed to process image file.');
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isAuthenticated) {
+    if (!isAuthenticated || !user) {
       setError('You must be logged in to submit proof.');
       return;
     }
@@ -91,32 +129,77 @@ export const ProofPage: React.FC<ProofPageProps> = ({
       let uploadedProofImageUrl: string | undefined = undefined;
       let uploadedCloudinaryPublicId: string | undefined = undefined;
 
-      // If user selected an image file (base64 data URL), upload securely to Cloudinary via server API
+      // If user selected an image file (base64 data URL), try uploading securely to Cloudinary via server API
       if (filePreview && filePreview.startsWith('data:image/')) {
-        const uploadRes = await api.uploadProofImage(filePreview);
-        finalEvidenceUrl = uploadRes.proofImageUrl;
-        uploadedProofImageUrl = uploadRes.proofImageUrl;
-        uploadedCloudinaryPublicId = uploadRes.cloudinaryPublicId;
+        try {
+          const uploadRes = await api.uploadProofImage(filePreview);
+          if (uploadRes && uploadRes.proofImageUrl) {
+            finalEvidenceUrl = uploadRes.proofImageUrl;
+            uploadedProofImageUrl = uploadRes.proofImageUrl;
+            uploadedCloudinaryPublicId = uploadRes.cloudinaryPublicId;
+          }
+        } catch (uploadErr) {
+          console.warn('[ProofPage] Cloudinary upload endpoint unavailable, storing optimized image directly:', uploadErr);
+          // If server upload endpoint is not available, use the compressed image preview as evidenceUrl
+          finalEvidenceUrl = filePreview;
+          uploadedProofImageUrl = filePreview;
+        }
       }
 
-      const res = await api.submitProof({
-        actionType,
-        description: description.trim(),
-        evidenceUrl: finalEvidenceUrl,
-        proofImageUrl: uploadedProofImageUrl,
-        cloudinaryPublicId: uploadedCloudinaryPublicId,
-      });
+      let submissionRecord: ProofSubmission | null = null;
+      let successMessage = 'Proof submitted successfully! It is now pending admin review.';
 
-      if (res.submission) {
-        createSubmissionInFirestore(res.submission).catch(() => {});
+      // Try server API first
+      try {
+        const res = await api.submitProof({
+          actionType,
+          description: description.trim(),
+          evidenceUrl: finalEvidenceUrl,
+          proofImageUrl: uploadedProofImageUrl,
+          cloudinaryPublicId: uploadedCloudinaryPublicId,
+        });
+
+        if (res && res.submission) {
+          submissionRecord = res.submission;
+          if (res.message) successMessage = res.message;
+          await createSubmissionInFirestore(res.submission).catch(() => {});
+        }
+      } catch (apiErr) {
+        console.warn('[ProofPage] Backend submit proof endpoint unavailable, saving directly to Firestore:', apiErr);
       }
 
-      setSuccessMsg(res.message || 'Proof submitted successfully! It is now pending admin review.');
+      // If backend API was unavailable (e.g. Vercel deployment), save directly to Firestore
+      if (!submissionRecord) {
+        const newPostId = 'sub_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+        const newSubmission: ProofSubmission = {
+          id: newPostId,
+          userId: user.id,
+          userName: user.fullName || user.email.split('@')[0],
+          userEmail: user.email,
+          actionType: actionType as any,
+          description: description.trim(),
+          evidenceUrl: finalEvidenceUrl,
+          proofImageUrl: uploadedProofImageUrl,
+          cloudinaryPublicId: uploadedCloudinaryPublicId,
+          submittedAt: new Date().toISOString(),
+          status: 'PENDING',
+          pointsAwarded: 0,
+          bagsAvoided: 0,
+          co2eGramsMin: 0,
+          co2eGramsMax: 0,
+        };
+
+        await createSubmissionInFirestore(newSubmission);
+        submissionRecord = newSubmission;
+      }
+
+      setSuccessMsg(successMessage);
       setDescription('');
       setEvidenceUrl('');
       setFilePreview(null);
       onSubmissionSuccess();
     } catch (err: any) {
+      console.error('[ProofPage] Submission error:', err);
       setError(err.message || 'Failed to submit proof.');
     } finally {
       setIsLoading(false);

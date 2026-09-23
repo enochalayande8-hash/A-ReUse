@@ -2,6 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { ProofSubmission } from '../types';
 import { useAuth } from '../services/auth/AuthContext';
 import { api } from '../services/api';
+import {
+  fetchAdminSubmissionsFromFirestore,
+  reviewSubmissionInFirestore,
+} from '../services/firebase/firestoreService';
 import { EmptyState } from '../components/EmptyState';
 import {
   ShieldCheck,
@@ -37,11 +41,25 @@ export const AdminReviewPage: React.FC<AdminReviewPageProps> = ({ onReviewComple
 
   const fetchSubmissions = async () => {
     setIsLoading(true);
+    const filterArg = filter === 'ALL' ? undefined : filter;
     try {
-      const res = await api.getAdminSubmissions(filter === 'ALL' ? undefined : filter);
-      setSubmissions(res.submissions || []);
-    } catch (err: any) {
-      console.error('Failed to fetch admin submissions:', err);
+      const res = await api.getAdminSubmissions(filterArg);
+      if (res && res.submissions && res.submissions.length > 0) {
+        setSubmissions(res.submissions);
+        return;
+      }
+      // If backend returns empty array or is running client-side, check Firestore
+      const fsSubmissions = await fetchAdminSubmissionsFromFirestore(filterArg);
+      setSubmissions(fsSubmissions);
+    } catch {
+      // Backend unavailable (e.g. Vercel static deployment), fetch directly from Firestore
+      try {
+        const fsSubmissions = await fetchAdminSubmissionsFromFirestore(filterArg);
+        setSubmissions(fsSubmissions);
+      } catch (fsErr) {
+        console.warn('Failed to fetch admin submissions from Firestore:', fsErr);
+        setSubmissions([]);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -77,13 +95,32 @@ export const AdminReviewPage: React.FC<AdminReviewPageProps> = ({ onReviewComple
     setFeedback(null);
 
     try {
-      const res = await api.reviewSubmission(selectedSubmission.id, {
-        status: reviewStatus,
-        reviewNote: reviewNote.trim(),
-        customPoints: reviewStatus === 'APPROVED' ? customPoints : 0,
-      });
+      let reviewResultMsg = 'Review recorded successfully!';
 
-      setFeedback({ type: 'success', text: res.message || 'Review recorded successfully!' });
+      // 1. Try backend review endpoint
+      try {
+        const res = await api.reviewSubmission(selectedSubmission.id, {
+          status: reviewStatus,
+          reviewNote: reviewNote.trim(),
+          customPoints: reviewStatus === 'APPROVED' ? customPoints : 0,
+        });
+        if (res && res.message) reviewResultMsg = res.message;
+      } catch (apiErr) {
+        // 2. Direct Firestore fallback (works on static hosting like Vercel)
+        console.warn('Backend review endpoint unavailable, recording directly in Firestore:', apiErr);
+        const fsRes = await reviewSubmissionInFirestore(
+          selectedSubmission.id,
+          {
+            status: reviewStatus,
+            reviewNote: reviewNote.trim(),
+            customPoints: reviewStatus === 'APPROVED' ? customPoints : 0,
+          },
+          user
+        );
+        if (fsRes.message) reviewResultMsg = fsRes.message;
+      }
+
+      setFeedback({ type: 'success', text: reviewResultMsg });
       setSelectedSubmission(null);
       await fetchSubmissions();
       onReviewCompleted();
