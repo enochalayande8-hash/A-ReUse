@@ -1542,7 +1542,7 @@ async function startServer() {
   // ----------------------------------------------------
 
   // Public: Get current impact settings
-  app.get('/api/config/impact', (req, res) => {
+  app.get(['/api/config/impact', '/api/impact-settings'], (req, res) => {
     res.json({ settings: db.impactSettings });
   });
 
@@ -1597,7 +1597,7 @@ async function startServer() {
   // ----------------------------------------------------
 
   // Public: Get org profile
-  app.get('/api/config/organization', (req, res) => {
+  app.get(['/api/config/organization', '/api/org-profile', '/api/organization-profile'], (req, res) => {
     res.json({ profile: db.orgProfile });
   });
 
