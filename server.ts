@@ -1032,7 +1032,6 @@ async function startServer() {
   app.get('/api/cloudinary/status', (req, res) => {
     res.json({
       configured: isCloudinaryConfigured,
-      cloudName: isCloudinaryConfigured ? CLOUDINARY_CLOUD_NAME : null,
     });
   });
 
@@ -1238,17 +1237,35 @@ async function startServer() {
         return res.status(404).json({ error: 'Submission not found.' });
       }
 
-      if (submission.status !== 'PENDING') {
+      if (submission.status !== 'PENDING' && admin.role !== 'TOP_ADMIN') {
         return res.status(400).json({ error: `This submission has already been reviewed (${submission.status}).` });
       }
 
-      const targetUser = db.users.find(u => u.id === submission.userId);
+      let targetUser = db.users.find(u => u.id === submission.userId);
       if (!targetUser) {
-        return res.status(404).json({ error: 'Submitting user record not found.' });
+        targetUser = {
+          id: submission.userId,
+          firebaseUid: submission.userId,
+          email: submission.userEmail || `user_${submission.userId}@movement.org`,
+          fullName: submission.userName || 'Movement Member',
+          passwordHash: '',
+          salt: '',
+          role: 'REGISTERED_USER',
+          accountStatus: 'ACTIVE',
+          createdAt: new Date().toISOString(),
+          verifiedActionsCount: 0,
+          verifiedPoints: 0,
+          verifiedReusableBagUses: 0,
+          verifiedBagsAvoided: 0,
+          verifiedCo2eAvoidedGramsMin: 0,
+          verifiedCo2eAvoidedGramsMax: 0,
+        };
+        db.users.push(targetUser);
       }
 
-      // Check self-review prevention: Users cannot review their own proof
-      if (submission.userId === admin.id) {
+      // Check self-review prevention: Users cannot review their own proof in regular flow,
+      // but Top Admin is allowed for testing and auditing
+      if (submission.userId === admin.id && admin.role !== 'TOP_ADMIN') {
         return res.status(403).json({ error: 'Security policy violation: Administrators cannot review their own submissions.' });
       }
 

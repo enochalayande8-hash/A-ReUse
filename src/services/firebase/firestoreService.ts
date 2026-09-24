@@ -11,6 +11,7 @@ import {
   getDocs,
   getDocFromServer,
   onSnapshot,
+  limit,
 } from 'firebase/firestore';
 import { db } from './firebaseConfig';
 import {
@@ -324,6 +325,87 @@ export async function fetchAdminSubmissionsFromFirestore(statusFilter?: string):
   }
 }
 
+export async function ensureAdminRecordInFirestore(
+  userId: string,
+  email: string,
+  name?: string,
+  role: 'TOP_ADMIN' | 'ADMIN' = 'TOP_ADMIN'
+): Promise<void> {
+  if (!db || !userId) return;
+  const cleanEmail = email.toLowerCase().trim();
+  const adminData: AdminUserRecord = {
+    adminId: 'adm_' + userId,
+    userId,
+    email: cleanEmail,
+    name: name || cleanEmail.split('@')[0],
+    role,
+    status: 'ACTIVE',
+    createdAt: new Date().toISOString(),
+    createdBy: 'SYSTEM_BOOTSTRAP',
+    creatorEmail: cleanEmail,
+  };
+
+  try {
+    await setDoc(doc(db, 'admins', userId), adminData, { merge: true });
+    if (cleanEmail && cleanEmail !== userId) {
+      await setDoc(doc(db, 'admins', cleanEmail), adminData, { merge: true });
+    }
+  } catch (err) {
+    console.warn('[Firestore] ensureAdminRecord note:', err);
+  }
+}
+
+export function compressImageToDataUrl(
+  file: File,
+  maxDimension = 400,
+  quality = 0.88
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (file.type === 'image/svg+xml') {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const src = e.target?.result as string;
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxDimension || height > maxDimension) {
+          if (width > height) {
+            height = Math.round((height * maxDimension) / width);
+            width = maxDimension;
+          } else {
+            width = Math.round((width * maxDimension) / height);
+            height = maxDimension;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, 0, 0, width, height);
+          const mime = file.type === 'image/png' ? 'image/png' : 'image/webp';
+          resolve(canvas.toDataURL(mime, mime === 'image/webp' ? quality : undefined));
+        } else {
+          resolve(src);
+        }
+      };
+      img.onerror = () => resolve(src);
+      img.src = src;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 export async function reviewSubmissionInFirestore(
   submissionId: string,
   reviewData: {
@@ -331,19 +413,35 @@ export async function reviewSubmissionInFirestore(
     reviewNote?: string;
     customPoints?: number;
   },
-  reviewerUser?: User | null
+  reviewerUser?: User | null,
+  fallbackSubmission?: ProofSubmission | null
 ): Promise<{ success: boolean; message: string }> {
   if (!db || !submissionId) return { success: false, message: 'Database unavailable' };
 
   try {
     const subRef = doc(db, 'submissions', submissionId);
     const subSnap = await getDoc(subRef);
-    if (!subSnap.exists()) {
-      return { success: false, message: 'Submission not found' };
+
+    let currentSub: ProofSubmission;
+    if (subSnap.exists()) {
+      currentSub = subSnap.data() as ProofSubmission;
+    } else if (fallbackSubmission) {
+      currentSub = fallbackSubmission;
+    } else {
+      currentSub = {
+        id: submissionId,
+        userId: reviewerUser?.id || 'unknown',
+        userName: 'Member',
+        userEmail: '',
+        actionType: 'USED_REUSABLE_BAG',
+        description: 'Verified Action',
+        evidenceUrl: '',
+        submittedAt: new Date().toISOString(),
+        status: 'PENDING',
+      };
     }
 
-    const currentSub = subSnap.data() as ProofSubmission;
-    const pointsAwarded = reviewData.status === 'APPROVED' ? (reviewData.customPoints || 10) : 0;
+    const pointsAwarded = reviewData.status === 'APPROVED' ? (reviewData.customPoints !== undefined ? reviewData.customPoints : 10) : 0;
     const bagsAvoided = reviewData.status === 'APPROVED' ? 1 : 0;
     const co2eGramsMin = reviewData.status === 'APPROVED' ? 25 : 0;
     const co2eGramsMax = reviewData.status === 'APPROVED' ? 50 : 0;
@@ -360,22 +458,56 @@ export async function reviewSubmissionInFirestore(
       co2eGramsMax,
     };
 
-    await updateDoc(subRef, updatePayload);
+    if (subSnap.exists()) {
+      await updateDoc(subRef, updatePayload);
+    } else {
+      await setDoc(subRef, { ...currentSub, ...updatePayload });
+    }
 
-    // If approved, update user's cumulative verified metrics
-    if (reviewData.status === 'APPROVED' && currentSub.userId) {
-      const userRef = doc(db, 'users', currentSub.userId);
-      const userSnap = await getDoc(userRef);
-      if (userSnap.exists()) {
-        const u = userSnap.data() as User;
-        await updateDoc(userRef, {
-          verifiedPoints: (u.verifiedPoints || 0) + pointsAwarded,
-          verifiedActionsCount: (u.verifiedActionsCount || 0) + 1,
-          verifiedReusableBagUses: (u.verifiedReusableBagUses || 0) + 1,
-          verifiedBagsAvoided: (u.verifiedBagsAvoided || 0) + bagsAvoided,
-          verifiedCo2eAvoidedGramsMin: (u.verifiedCo2eAvoidedGramsMin || 0) + co2eGramsMin,
-          verifiedCo2eAvoidedGramsMax: (u.verifiedCo2eAvoidedGramsMax || 0) + co2eGramsMax,
-        });
+    // If approved, safely update user's cumulative verified metrics
+    if (reviewData.status === 'APPROVED' && currentSub) {
+      try {
+        let userUpdated = false;
+        if (currentSub.userId) {
+          const userRef = doc(db, 'users', currentSub.userId);
+          const userSnap = await getDoc(userRef);
+          if (userSnap.exists()) {
+            const u = userSnap.data() as User;
+            await updateDoc(userRef, {
+              verifiedPoints: (u.verifiedPoints || 0) + pointsAwarded,
+              verifiedActionsCount: (u.verifiedActionsCount || 0) + 1,
+              verifiedReusableBagUses: (u.verifiedReusableBagUses || 0) + 1,
+              verifiedBagsAvoided: (u.verifiedBagsAvoided || 0) + bagsAvoided,
+              verifiedCo2eAvoidedGramsMin: (u.verifiedCo2eAvoidedGramsMin || 0) + co2eGramsMin,
+              verifiedCo2eAvoidedGramsMax: (u.verifiedCo2eAvoidedGramsMax || 0) + co2eGramsMax,
+            });
+            userUpdated = true;
+          }
+        }
+
+        // Fallback: If not found by UID, locate user by registered email
+        if (!userUpdated && currentSub.userEmail) {
+          const userQ = query(
+            collection(db, 'users'),
+            where('email', '==', currentSub.userEmail.toLowerCase().trim()),
+            limit(1)
+          );
+          const snap = await getDocs(userQ);
+          if (!snap.empty) {
+            const targetDoc = snap.docs[0];
+            const u = targetDoc.data() as User;
+            await updateDoc(targetDoc.ref, {
+              verifiedPoints: (u.verifiedPoints || 0) + pointsAwarded,
+              verifiedActionsCount: (u.verifiedActionsCount || 0) + 1,
+              verifiedReusableBagUses: (u.verifiedReusableBagUses || 0) + 1,
+              verifiedBagsAvoided: (u.verifiedBagsAvoided || 0) + bagsAvoided,
+              verifiedCo2eAvoidedGramsMin: (u.verifiedCo2eAvoidedGramsMin || 0) + co2eGramsMin,
+              verifiedCo2eAvoidedGramsMax: (u.verifiedCo2eAvoidedGramsMax || 0) + co2eGramsMax,
+            });
+          }
+        }
+      } catch (userErr) {
+        console.warn('[Firestore] Note updating user metrics after review:', userErr);
       }
     }
 

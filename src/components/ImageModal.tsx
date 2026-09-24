@@ -86,7 +86,7 @@ export const ImageModal: React.FC<ImageModalProps> = ({
               <h3 className="text-sm font-bold text-[#40281d]">{title}</h3>
               {cloudinaryPublicId && (
                 <span className="text-[10px] text-[#78675e] font-mono">
-                  Cloudinary ID: {cloudinaryPublicId}
+                  Asset Ref: {cloudinaryPublicId}
                 </span>
               )}
             </div>

@@ -18,6 +18,7 @@ import {
   saveUserToFirestore,
   getUserFromFirestore,
   checkIfUserIsAdminInFirestore,
+  ensureAdminRecordInFirestore,
 } from '../firebase/firestoreService';
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -76,10 +77,12 @@ async function resolveUserSession(
   if (existingUser) {
     if (isTopAdmin) {
       existingUser.role = 'TOP_ADMIN';
+      ensureAdminRecordInFirestore(fbUser.uid, cleanEmail, customFullName || existingUser.fullName, 'TOP_ADMIN').catch(() => {});
     } else {
       const isAppointed = await checkIfUserIsAdminInFirestore(fbUser.uid, cleanEmail);
       if (isAppointed) {
         existingUser.role = 'ADMIN';
+        ensureAdminRecordInFirestore(fbUser.uid, cleanEmail, customFullName || existingUser.fullName, 'ADMIN').catch(() => {});
       }
     }
     if (customFullName && !existingUser.fullName) {
@@ -94,6 +97,10 @@ async function resolveUserSession(
   if (!isTopAdmin) {
     const isAppointed = await checkIfUserIsAdminInFirestore(fbUser.uid, cleanEmail);
     if (isAppointed) initialRole = 'ADMIN';
+  }
+
+  if (initialRole === 'TOP_ADMIN' || initialRole === 'ADMIN') {
+    ensureAdminRecordInFirestore(fbUser.uid, cleanEmail, customFullName || fbUser.displayName, initialRole).catch(() => {});
   }
 
   const newUser: User = {
@@ -395,6 +402,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         };
         setUser(upgradedUser);
         await saveUserToFirestore(upgradedUser).catch(() => {});
+        ensureAdminRecordInFirestore(user.id, user.email, user.fullName, 'TOP_ADMIN').catch(() => {});
         return;
       }
 

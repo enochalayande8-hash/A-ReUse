@@ -463,7 +463,7 @@ export const ProofPage: React.FC<ProofPageProps> = ({
                       </button>
                       {sub.cloudinaryPublicId && (
                         <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-[#dce8d8] text-[#365646] border border-[#c4d9bf]">
-                          Cloudinary
+                          Verified Media
                         </span>
                       )}
                     </div>

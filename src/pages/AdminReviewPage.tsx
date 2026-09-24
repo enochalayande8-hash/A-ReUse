@@ -137,12 +137,28 @@ export const AdminReviewPage: React.FC<AdminReviewPageProps> = ({ onReviewComple
             reviewNote: reviewNote.trim(),
             customPoints: reviewStatus === 'APPROVED' ? customPoints : 0,
           },
-          user
+          user,
+          selectedSubmission
         );
         if (fsRes.message) reviewResultMsg = fsRes.message;
       }
 
       setFeedback({ type: 'success', text: reviewResultMsg });
+      setSubmissions((prev) =>
+        prev.map((s) =>
+          s.id === selectedSubmission.id
+            ? {
+                ...s,
+                status: reviewStatus,
+                reviewNote: reviewNote.trim(),
+                pointsAwarded: reviewStatus === 'APPROVED' ? customPoints : 0,
+                reviewedAt: new Date().toISOString(),
+                reviewedBy: user?.id || 'admin',
+                reviewerEmail: user?.email || 'admin@movement.org',
+              }
+            : s
+        )
+      );
       setSelectedSubmission(null);
       await fetchSubmissions();
       onReviewCompleted();
@@ -250,7 +266,7 @@ export const AdminReviewPage: React.FC<AdminReviewPageProps> = ({ onReviewComple
                     <p className="text-xs font-bold text-[#2C1810] uppercase">Evidence Photo:</p>
                     {selectedSubmission.cloudinaryPublicId && (
                       <span className="text-[10px] text-[#8D6E63] font-medium flex items-center gap-1">
-                        <span>Cloudinary:</span>
+                        <span>Asset Ref:</span>
                         <code className="bg-black/5 px-1 py-0.5 rounded text-[9px] font-mono text-[#2C1810]">
                           {selectedSubmission.cloudinaryPublicId}
                         </code>
@@ -453,7 +469,7 @@ export const AdminReviewPage: React.FC<AdminReviewPageProps> = ({ onReviewComple
                   )}
                   {sub.cloudinaryPublicId && (
                     <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                      Cloudinary
+                      Verified Media
                     </span>
                   )}
                   {sub.pointsAwarded !== undefined && (
