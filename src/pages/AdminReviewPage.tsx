@@ -45,23 +45,43 @@ export const AdminReviewPage: React.FC<AdminReviewPageProps> = ({ onReviewComple
     setIsLoading(true);
     const filterArg = filter === 'ALL' ? undefined : filter;
     try {
-      const res = await api.getAdminSubmissions(filterArg);
-      if (res && res.submissions && res.submissions.length > 0) {
-        setSubmissions(res.submissions);
-        return;
-      }
-      // If backend returns empty array or is running client-side, check Firestore
-      const fsSubmissions = await fetchAdminSubmissionsFromFirestore(filterArg);
-      setSubmissions(fsSubmissions);
-    } catch {
-      // Backend unavailable (e.g. Vercel static deployment), fetch directly from Firestore
+      const mergedMap = new Map<string, ProofSubmission>();
+
+      // 1. Fetch live submissions from Firestore (primary persistent source)
       try {
         const fsSubmissions = await fetchAdminSubmissionsFromFirestore(filterArg);
-        setSubmissions(fsSubmissions);
+        (fsSubmissions || []).forEach((s) => mergedMap.set(s.id, s));
       } catch (fsErr) {
-        console.warn('Failed to fetch admin submissions from Firestore:', fsErr);
-        setSubmissions([]);
+        console.warn('Direct Firestore fetch note:', fsErr);
       }
+
+      // 2. Fetch backend API submissions and merge
+      try {
+        const res = await api.getAdminSubmissions(filterArg);
+        if (res && res.submissions) {
+          res.submissions.forEach((s) => {
+            if (!mergedMap.has(s.id)) {
+              mergedMap.set(s.id, s);
+            }
+          });
+        }
+      } catch (apiErr) {
+        // Backend unavailable or running standalone client
+      }
+
+      const combined = Array.from(mergedMap.values()).sort(
+        (a, b) => new Date(b.submittedAt || 0).getTime() - new Date(a.submittedAt || 0).getTime()
+      );
+
+      // Client-side safety filter
+      const finalFiltered = filterArg
+        ? combined.filter((s) => s.status === filterArg)
+        : combined;
+
+      setSubmissions(finalFiltered);
+    } catch (err) {
+      console.error('Error fetching submissions for admin review:', err);
+      setSubmissions([]);
     } finally {
       setIsLoading(false);
     }

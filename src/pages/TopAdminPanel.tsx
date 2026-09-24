@@ -79,6 +79,7 @@ export const TopAdminPanel: React.FC<TopAdminPanelProps> = ({
 
   const [activeTab, setActiveTab] = useState<
     | 'stats'
+    | 'submissions'
     | 'challenges'
     | 'prizes'
     | 'admins'
@@ -94,8 +95,18 @@ export const TopAdminPanel: React.FC<TopAdminPanelProps> = ({
   const [registeredUsers, setRegisteredUsers] = useState<User[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [impactSettings, setImpactSettings] = useState<ImpactSettings | null>(null);
-  const [orgProfile, setOrgProfile] = useState<OrganizationProfile | null>(null);
+  const [orgProfile, setOrgProfile] = useState<OrganizationProfile>(DEFAULT_ORGANIZATION_PROFILE);
   const [paymentSettings, setPaymentSettings] = useState<PaymentSettings | null>(null);
+
+  // Submissions State for Top Admin Management
+  const [submissions, setSubmissions] = useState<ProofSubmission[]>([]);
+  const [submissionFilter, setSubmissionFilter] = useState<'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED'>('ALL');
+  const [selectedModalSubmission, setSelectedModalSubmission] = useState<ProofSubmission | null>(null);
+  const [reviewingSubId, setReviewingSubId] = useState<string | null>(null);
+  const [quickReviewStatus, setQuickReviewStatus] = useState<'APPROVED' | 'REJECTED'>('APPROVED');
+  const [quickReviewNote, setQuickReviewNote] = useState<string>('Verified clear reusable bag usage.');
+  const [quickReviewPoints, setQuickReviewPoints] = useState<number>(10);
+  const [isProcessingReview, setIsProcessingReview] = useState(false);
 
   // Organization Logo Upload & Preview State
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
@@ -146,7 +157,13 @@ export const TopAdminPanel: React.FC<TopAdminPanelProps> = ({
       ]);
 
       if (statsRes.stats) setStats(statsRes.stats);
-      if (adminsRes.admins) setAdmins(adminsRes.admins);
+
+      // Resolve admins list from API and Firestore
+      let resolvedAdmins = adminsRes.admins || [];
+      if (resolvedAdmins.length === 0) {
+        resolvedAdmins = await fetchAdminsFromFirestore().catch(() => []);
+      }
+      setAdmins(resolvedAdmins);
 
       let resolvedUsers = usersRes.users || [];
       if (resolvedUsers.length === 0) {
@@ -156,8 +173,36 @@ export const TopAdminPanel: React.FC<TopAdminPanelProps> = ({
 
       if (auditRes.auditLogs) setAuditLogs(auditRes.auditLogs);
       if (impactRes.settings) setImpactSettings(impactRes.settings);
-      if (orgRes.profile) setOrgProfile(orgRes.profile);
+
+      // Resolve organization profile: ensure default is used if null
+      let resolvedOrg = orgRes.profile;
+      if (!resolvedOrg) {
+        resolvedOrg = await fetchOrgProfileFromFirestore().catch(() => DEFAULT_ORGANIZATION_PROFILE);
+      }
+      setOrgProfile(resolvedOrg || DEFAULT_ORGANIZATION_PROFILE);
+
       if (payRes.settings) setPaymentSettings(payRes.settings);
+
+      // Load all user submissions from Firestore and API
+      const mergedSubs = new Map<string, ProofSubmission>();
+      try {
+        const fsSubs = await fetchAdminSubmissionsFromFirestore();
+        (fsSubs || []).forEach((s) => mergedSubs.set(s.id, s));
+      } catch (fsErr) {
+        console.warn('Firestore fetchAdminSubmissions note:', fsErr);
+      }
+      try {
+        const apiSubs = await api.getAdminSubmissions();
+        (apiSubs?.submissions || []).forEach((s) => {
+          if (!mergedSubs.has(s.id)) mergedSubs.set(s.id, s);
+        });
+      } catch {
+        // Backend unavailable
+      }
+      const combinedSubs = Array.from(mergedSubs.values()).sort(
+        (a, b) => new Date(b.submittedAt || 0).getTime() - new Date(a.submittedAt || 0).getTime()
+      );
+      setSubmissions(combinedSubs);
     } catch (err) {
       console.error('Failed to load top admin control data:', err);
     } finally {
@@ -454,6 +499,46 @@ export const TopAdminPanel: React.FC<TopAdminPanelProps> = ({
     }
   };
 
+  const handleProcessQuickReview = async (
+    subId: string,
+    action: 'APPROVED' | 'REJECTED',
+    note?: string,
+    points?: number
+  ) => {
+    setIsProcessingReview(true);
+    try {
+      const finalNote = note || (action === 'APPROVED' ? 'Verified evidence of reusable bag usage.' : 'Evidence photo is unclear or does not show reusable bag.');
+      const finalPoints = action === 'APPROVED' ? (points !== undefined ? points : 10) : 0;
+
+      // 1. Update in Firestore directly
+      await reviewSubmissionInFirestore(
+        subId,
+        {
+          status: action,
+          reviewNote: finalNote,
+          customPoints: finalPoints,
+        },
+        user
+      ).catch((fsErr) => console.warn('Firestore review direct note:', fsErr));
+
+      // 2. Update via API
+      await api.reviewSubmission(subId, {
+        status: action,
+        reviewNote: finalNote,
+        customPoints: finalPoints,
+      }).catch(() => {});
+
+      showMsg('success', `Submission marked as ${action}.`);
+      setReviewingSubId(null);
+      loadAllAdminData();
+      onRefreshData();
+    } catch (err: any) {
+      showMsg('error', err.message || 'Failed to review submission.');
+    } finally {
+      setIsProcessingReview(false);
+    }
+  };
+
   if (!isTopAdmin) {
     return (
       <div className="py-12">
@@ -468,6 +553,7 @@ export const TopAdminPanel: React.FC<TopAdminPanelProps> = ({
 
   const navTabs = [
     { id: 'stats', label: 'System Stats', icon: ShieldAlert },
+    { id: 'submissions', label: 'User Submissions', icon: CheckCircle },
     { id: 'challenges', label: 'Challenges', icon: Award },
     { id: 'prizes', label: 'Prizes & Rewards', icon: Trophy },
     { id: 'admins', label: 'Administrators', icon: Users },
@@ -599,6 +685,240 @@ export const TopAdminPanel: React.FC<TopAdminPanelProps> = ({
               All metrics above are calculated directly from verified database entries. When no members or actions exist, figures start at exact baseline zero as mandated by the project specification.
             </p>
           </div>
+        </div>
+      )}
+
+      {/* Tab: User Submissions Management */}
+      {activeTab === 'submissions' && (
+        <div className="space-y-6">
+          {/* Header & Cloudinary Status Banner */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-bold text-[#2C1810]">All Member Proof Submissions</h2>
+              <p className="text-xs text-[#795548]">
+                Real-time review desk for all photographic evidence uploaded across the movement.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-semibold shadow-2xs">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span>Cloud Storage: Cloudinary (pmimncr8) Connected</span>
+              </span>
+              <button
+                type="button"
+                onClick={loadAllAdminData}
+                disabled={isLoading}
+                className="px-3 py-1.5 rounded-xl bg-white border border-[#2C1810]/15 hover:bg-[#FDFBF7] text-xs font-bold text-[#2C1810] flex items-center gap-1 shadow-2xs cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+                <span>Refresh</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Status Metrics Bar */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <button
+              type="button"
+              onClick={() => setSubmissionFilter('ALL')}
+              className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
+                submissionFilter === 'ALL'
+                  ? 'bg-[#2C1810] text-[#D4AF37] border-[#D4AF37]'
+                  : 'bg-white text-[#2C1810] border-[#2C1810]/10 hover:border-[#2C1810]/30'
+              }`}
+            >
+              <span className="text-[11px] font-bold block uppercase tracking-wider">Total Submissions</span>
+              <span className="text-2xl font-black mt-0.5 block">{submissions.length}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setSubmissionFilter('PENDING')}
+              className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
+                submissionFilter === 'PENDING'
+                  ? 'bg-amber-800 text-amber-100 border-amber-500'
+                  : 'bg-amber-50/70 text-amber-900 border-amber-200 hover:border-amber-400'
+              }`}
+            >
+              <span className="text-[11px] font-bold block uppercase tracking-wider">Pending Review</span>
+              <span className="text-2xl font-black mt-0.5 block">
+                {submissions.filter((s) => s.status === 'PENDING').length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setSubmissionFilter('APPROVED')}
+              className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
+                submissionFilter === 'APPROVED'
+                  ? 'bg-emerald-800 text-emerald-100 border-emerald-500'
+                  : 'bg-emerald-50/70 text-emerald-900 border-emerald-200 hover:border-emerald-400'
+              }`}
+            >
+              <span className="text-[11px] font-bold block uppercase tracking-wider">Approved Proofs</span>
+              <span className="text-2xl font-black mt-0.5 block">
+                {submissions.filter((s) => s.status === 'APPROVED').length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setSubmissionFilter('REJECTED')}
+              className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
+                submissionFilter === 'REJECTED'
+                  ? 'bg-rose-800 text-rose-100 border-rose-500'
+                  : 'bg-rose-50/70 text-rose-900 border-rose-200 hover:border-rose-400'
+              }`}
+            >
+              <span className="text-[11px] font-bold block uppercase tracking-wider">Rejected Proofs</span>
+              <span className="text-2xl font-black mt-0.5 block">
+                {submissions.filter((s) => s.status === 'REJECTED').length}
+              </span>
+            </button>
+          </div>
+
+          {/* Submissions List */}
+          {(() => {
+            const filtered =
+              submissionFilter === 'ALL'
+                ? submissions
+                : submissions.filter((s) => s.status === submissionFilter);
+
+            if (filtered.length === 0) {
+              return (
+                <EmptyState
+                  icon={CheckCircle}
+                  title={`No ${submissionFilter !== 'ALL' ? submissionFilter.toLowerCase() : ''} submissions found`}
+                  description="When members upload photographic proof of reusable bag usage, they appear immediately here for validation."
+                />
+              );
+            }
+
+            return (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {filtered.map((sub) => {
+                  const imgUrl = sub.proofImageUrl || sub.evidenceUrl || '';
+                  const isPending = sub.status === 'PENDING';
+                  const isApproved = sub.status === 'APPROVED';
+
+                  return (
+                    <div
+                      key={sub.id}
+                      className="bg-white rounded-2xl border border-[#2C1810]/10 overflow-hidden shadow-xs hover:border-[#D4AF37]/50 transition-all flex flex-col"
+                    >
+                      {/* Photo Thumbnail with Zoom Lightbox Overlay */}
+                      <div className="relative h-48 bg-stone-900 overflow-hidden group">
+                        {imgUrl ? (
+                          <>
+                            <img
+                              src={imgUrl}
+                              alt="Submitted Evidence"
+                              onClick={() => setSelectedModalSubmission(sub)}
+                              className="w-full h-full object-cover cursor-zoom-in transition-transform duration-300 group-hover:scale-105"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setSelectedModalSubmission(sub)}
+                              className="absolute bottom-2.5 right-2.5 px-3 py-1.5 rounded-xl bg-black/75 hover:bg-black text-white text-xs font-bold flex items-center gap-1.5 backdrop-blur-xs transition-all shadow-md cursor-pointer"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5 text-[#D4AF37]" />
+                              <span>Pop Up Photo</span>
+                            </button>
+                          </>
+                        ) : (
+                          <div className="w-full h-full flex flex-col items-center justify-center text-stone-400 gap-1">
+                            <ImageIcon className="w-8 h-8 opacity-40" />
+                            <span className="text-xs">No image provided</span>
+                          </div>
+                        )}
+
+                        <div className="absolute top-2.5 left-2.5">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold shadow-xs ${
+                              isApproved
+                                ? 'bg-emerald-600 text-white'
+                                : isPending
+                                ? 'bg-amber-600 text-white'
+                                : 'bg-rose-600 text-white'
+                            }`}
+                          >
+                            {isApproved && <CheckCircle className="w-3 h-3" />}
+                            {isPending && <Clock className="w-3 h-3" />}
+                            {sub.status === 'REJECTED' && <XCircle className="w-3 h-3" />}
+                            <span>{sub.status}</span>
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Content Card Body */}
+                      <div className="p-5 flex-1 flex flex-col justify-between space-y-3">
+                        <div className="space-y-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <span className="text-xs font-bold text-[#2C1810] block">
+                                {sub.userName || 'Movement Member'}
+                              </span>
+                              <span className="text-[11px] text-[#8D6E63]">{sub.userEmail}</span>
+                            </div>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-[#2C1810]/5 text-[#5D4037]">
+                              {sub.actionType.replace(/_/g, ' ')}
+                            </span>
+                          </div>
+
+                          <p className="text-xs text-[#5D4037] line-clamp-2 bg-[#FDFBF7] p-2.5 rounded-xl border border-[#2C1810]/5">
+                            {sub.description || 'No contextual note provided by submitter.'}
+                          </p>
+
+                          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#8D6E63] pt-1">
+                            <span>Submitted: {new Date(sub.submittedAt).toLocaleString()}</span>
+                            {isApproved && (
+                              <span className="font-bold text-emerald-700">
+                                +{sub.pointsAwarded || 10} Pts awarded
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Inline Review Action Buttons */}
+                        <div className="pt-3 border-t border-[#2C1810]/10 flex items-center justify-between gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedModalSubmission(sub)}
+                            className="px-3 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-[#2C1810] text-xs font-bold flex items-center gap-1 cursor-pointer"
+                          >
+                            <ExternalLink className="w-3 h-3 text-[#D4AF37]" />
+                            <span>Inspect Fullscreen</span>
+                          </button>
+
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              disabled={isProcessingReview}
+                              onClick={() => handleProcessQuickReview(sub.id, 'APPROVED')}
+                              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                              <CheckCircle className="w-3 h-3" />
+                              <span>{isApproved ? 'Re-Approve' : 'Approve (+10)'}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              disabled={isProcessingReview}
+                              onClick={() => handleProcessQuickReview(sub.id, 'REJECTED')}
+                              className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                              <XCircle className="w-3 h-3" />
+                              <span>Reject</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
         </div>
       )}
 
@@ -1525,6 +1845,22 @@ export const TopAdminPanel: React.FC<TopAdminPanelProps> = ({
             </tbody>
           </table>
         </div>
+      )}
+
+      {/* Interactive Photo Lightbox Popup */}
+      {selectedModalSubmission && (
+        <ImageModal
+          isOpen={!!selectedModalSubmission}
+          onClose={() => setSelectedModalSubmission(null)}
+          imageUrl={selectedModalSubmission.proofImageUrl || selectedModalSubmission.evidenceUrl || ''}
+          title={`Evidence Inspection - ${selectedModalSubmission.actionType.replace(/_/g, ' ')}`}
+          submitterName={selectedModalSubmission.userName}
+          submitterEmail={selectedModalSubmission.userEmail}
+          submittedAt={selectedModalSubmission.submittedAt}
+          actionType={selectedModalSubmission.actionType}
+          cloudinaryPublicId={selectedModalSubmission.cloudinaryPublicId}
+          status={selectedModalSubmission.status}
+        />
       )}
     </div>
   );

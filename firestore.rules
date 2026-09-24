@@ -25,6 +25,17 @@ service cloud.firestore {
       );
     }
 
+    // Appointed Administrator check (supports lookup by UID or by registered email)
+    function isAppointedAdmin() {
+      return isSignedIn() && (
+        (exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.status == 'ACTIVE') ||
+        (request.auth.token.email != null &&
+         exists(/databases/$(database)/documents/admins/$(request.auth.token.email)) &&
+         get(/databases/$(database)/documents/admins/$(request.auth.token.email)).data.status == 'ACTIVE')
+      );
+    }
+
     // TOP_ADMIN role check: direct recognition for creator email/UID,
     // custom claims, or verified admin roster document
     function isTopAdmin() {
@@ -33,18 +44,18 @@ service cloud.firestore {
         (request.auth.token.role == 'TOP_ADMIN') ||
         (exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
          get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == 'TOP_ADMIN' &&
-         get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.status == 'ACTIVE')
+         get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.status == 'ACTIVE') ||
+        (request.auth.token.email != null &&
+         exists(/databases/$(database)/documents/admins/$(request.auth.token.email)) &&
+         get(/databases/$(database)/documents/admins/$(request.auth.token.email)).data.role == 'TOP_ADMIN' &&
+         get(/databases/$(database)/documents/admins/$(request.auth.token.email)).data.status == 'ACTIVE')
       );
     }
 
     // ADMIN role check
     function isAdmin() {
-      return isTopAdmin() || (
-        isSignedIn() && (
-          request.auth.token.role == 'ADMIN' ||
-          (exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
-           get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.status == 'ACTIVE')
-        )
+      return isTopAdmin() || isAppointedAdmin() || (
+        isSignedIn() && request.auth.token.role == 'ADMIN'
       );
     }
 
@@ -65,13 +76,13 @@ service cloud.firestore {
 
     // Proof Submissions Collection
     match /submissions/{submissionId} {
-      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow list: if isSignedIn();
-      // User creates submission strictly as PENDING with 0 points awarded and no reviewer
+      // Top Admin and Appointed Admins can view and list ALL submissions; users can view their own
+      allow read: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
+      // Authenticated users create submission
       allow create: if isSignedIn() &&
         request.resource.data.userId == request.auth.uid &&
         isValidId(submissionId);
-      // Only authorized Admins can review/approve/reject submissions
+      // Only authorized Admins and Top Admin can review/approve/reject submissions
       allow update: if isAdmin();
       allow delete: if isTopAdmin();
     }
@@ -88,9 +99,9 @@ service cloud.firestore {
       allow write: if isTopAdmin();
     }
 
-    // Admins Roster (Read by admins, write strictly by Top Admin)
+    // Admins Roster (Read by signed in members to verify clearance, write strictly by Top Admin)
     match /admins/{adminId} {
-      allow read: if isAdmin();
+      allow read: if isSignedIn();
       allow write: if isTopAdmin();
     }
 
