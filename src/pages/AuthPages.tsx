@@ -29,6 +29,15 @@ export const AuthPages: React.FC<AuthPagesProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
+  const isAndroidApp = React.useMemo(() => {
+    if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+    const ua = navigator.userAgent || '';
+    return (
+      /wv|Version\/4\.0|Webintoapp/i.test(ua) ||
+      (/Android/i.test(ua) && /Mobile/i.test(ua) && !/Chrome\/[0-9]+/i.test(ua))
+    );
+  }, []);
+
   const clearForm = () => {
     setError(null);
     setSuccessMsg(null);
@@ -152,9 +161,39 @@ export const AuthPages: React.FC<AuthPagesProps> = ({
 
       {/* Error / Success Feedback */}
       {error && (
-        <div className="mb-4 p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-start gap-2.5">
-          <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
-          <span>{error}</span>
+        <div className="mb-4 p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs space-y-2">
+          <div className="flex items-start gap-2.5">
+            <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+            <span className="leading-relaxed">{error}</span>
+          </div>
+          {(error.includes('APK webviews') ||
+            error.includes('sessionStorage') ||
+            error.includes('missing initial state') ||
+            error.includes('popup')) && (
+            <div className="pt-2 border-t border-red-200/70 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setError(null);
+                  const el = document.querySelector('input[type="email"]') as HTMLInputElement;
+                  if (el) el.focus();
+                }}
+                className="px-2.5 py-1 rounded-lg bg-[#2C1810] text-[#FDFBF7] text-[11px] font-bold hover:bg-[#3E2723] transition-all cursor-pointer shadow-2xs"
+              >
+                Sign In with Email Below
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setError(null);
+                  setMode('forgot-password');
+                }}
+                className="px-2.5 py-1 rounded-lg bg-white border border-[#2C1810]/20 text-[#2C1810] text-[11px] font-semibold hover:bg-[#FDFBF7] transition-all cursor-pointer"
+              >
+                Set Password for Gmail
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -162,6 +201,16 @@ export const AuthPages: React.FC<AuthPagesProps> = ({
         <div className="mb-4 p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-start gap-2.5">
           <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
           <span>{successMsg}</span>
+        </div>
+      )}
+
+      {/* Android APK Detection notice */}
+      {isAndroidApp && (mode === 'login' || mode === 'signup') && (
+        <div className="mb-3 p-2.5 rounded-xl bg-[#2C1810]/5 border border-[#2C1810]/10 text-[#5D4037] text-[11px] flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0 animate-pulse" />
+          <span>
+            <strong>Android App Mode:</strong> Sign in with Email & Password below for instant access.
+          </span>
         </div>
       )}
 

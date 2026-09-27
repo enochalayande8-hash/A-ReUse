@@ -1929,21 +1929,26 @@ async function startServer() {
   app.get('/api/stats', (req, res) => {
     const registeredUsersCount = db.users.length;
     const pendingSubmissionsCount = db.submissions.filter(s => s.status === 'PENDING').length;
-    const approvedSubmissionsCount = db.submissions.filter(s => s.status === 'APPROVED').length;
+    const approvedSubmissions = db.submissions.filter(s => s.status === 'APPROVED');
+    const approvedSubmissionsCount = approvedSubmissions.length;
     const rejectedSubmissionsCount = db.submissions.filter(s => s.status === 'REJECTED').length;
 
-    const totalVerifiedActions = db.submissions.filter(s => s.status === 'APPROVED').length;
-    const totalVerifiedBagsAvoided = db.submissions
-      .filter(s => s.status === 'APPROVED')
-      .reduce((sum, s) => sum + (s.bagsAvoided || 0), 0);
+    const totalVerifiedActions = Math.max(
+      approvedSubmissionsCount,
+      db.users.reduce((sum, u) => sum + (Number(u.verifiedActionsCount) || 0), 0)
+    );
 
-    const totalCo2eGramsMin = db.submissions
-      .filter(s => s.status === 'APPROVED')
-      .reduce((sum, s) => sum + (s.co2eGramsMin || 0), 0);
+    const bagsFromSubs = approvedSubmissions.reduce((sum, s) => sum + (Number(s.bagsAvoided) || 0), 0);
+    const bagsFromUsers = db.users.reduce((sum, u) => sum + (Number(u.verifiedBagsAvoided) || 0), 0);
+    const totalVerifiedBagsAvoided = Math.max(bagsFromSubs, bagsFromUsers);
 
-    const totalCo2eGramsMax = db.submissions
-      .filter(s => s.status === 'APPROVED')
-      .reduce((sum, s) => sum + (s.co2eGramsMax || 0), 0);
+    const co2MinFromSubs = approvedSubmissions.reduce((sum, s) => sum + (Number(s.co2eGramsMin) || 0), 0);
+    const co2MinFromUsers = db.users.reduce((sum, u) => sum + (Number(u.verifiedCo2eAvoidedGramsMin) || 0), 0);
+    const totalCo2eGramsMin = Math.max(co2MinFromSubs, co2MinFromUsers);
+
+    const co2MaxFromSubs = approvedSubmissions.reduce((sum, s) => sum + (Number(s.co2eGramsMax) || 0), 0);
+    const co2MaxFromUsers = db.users.reduce((sum, u) => sum + (Number(u.verifiedCo2eAvoidedGramsMax) || 0), 0);
+    const totalCo2eGramsMax = Math.max(co2MaxFromSubs, co2MaxFromUsers);
 
     const activeChallengesCount = db.challenges.filter(c => c.status === 'ACTIVE').length;
     const activePrizesCount = db.prizes.filter(p => p.status === 'ACTIVE').length;
@@ -1967,21 +1972,26 @@ async function startServer() {
   app.get('/api/admin/stats', requireAdmin, (req, res) => {
     const registeredUsersCount = db.users.length;
     const pendingSubmissionsCount = db.submissions.filter(s => s.status === 'PENDING').length;
-    const approvedSubmissionsCount = db.submissions.filter(s => s.status === 'APPROVED').length;
+    const approvedSubmissions = db.submissions.filter(s => s.status === 'APPROVED');
+    const approvedSubmissionsCount = approvedSubmissions.length;
     const rejectedSubmissionsCount = db.submissions.filter(s => s.status === 'REJECTED').length;
 
-    const totalVerifiedActions = db.submissions.filter(s => s.status === 'APPROVED').length;
-    const totalVerifiedBagsAvoided = db.submissions
-      .filter(s => s.status === 'APPROVED')
-      .reduce((sum, s) => sum + (s.bagsAvoided || 0), 0);
+    const totalVerifiedActions = Math.max(
+      approvedSubmissionsCount,
+      db.users.reduce((sum, u) => sum + (Number(u.verifiedActionsCount) || 0), 0)
+    );
 
-    const totalCo2eGramsMin = db.submissions
-      .filter(s => s.status === 'APPROVED')
-      .reduce((sum, s) => sum + (s.co2eGramsMin || 0), 0);
+    const bagsFromSubs = approvedSubmissions.reduce((sum, s) => sum + (Number(s.bagsAvoided) || 0), 0);
+    const bagsFromUsers = db.users.reduce((sum, u) => sum + (Number(u.verifiedBagsAvoided) || 0), 0);
+    const totalVerifiedBagsAvoided = Math.max(bagsFromSubs, bagsFromUsers);
 
-    const totalCo2eGramsMax = db.submissions
-      .filter(s => s.status === 'APPROVED')
-      .reduce((sum, s) => sum + (s.co2eGramsMax || 0), 0);
+    const co2MinFromSubs = approvedSubmissions.reduce((sum, s) => sum + (Number(s.co2eGramsMin) || 0), 0);
+    const co2MinFromUsers = db.users.reduce((sum, u) => sum + (Number(u.verifiedCo2eAvoidedGramsMin) || 0), 0);
+    const totalCo2eGramsMin = Math.max(co2MinFromSubs, co2MinFromUsers);
+
+    const co2MaxFromSubs = approvedSubmissions.reduce((sum, s) => sum + (Number(s.co2eGramsMax) || 0), 0);
+    const co2MaxFromUsers = db.users.reduce((sum, u) => sum + (Number(u.verifiedCo2eAvoidedGramsMax) || 0), 0);
+    const totalCo2eGramsMax = Math.max(co2MaxFromSubs, co2MaxFromUsers);
 
     const activeChallengesCount = db.challenges.filter(c => c.status === 'ACTIVE').length;
     const activePrizesCount = db.prizes.filter(p => p.status === 'ACTIVE').length;

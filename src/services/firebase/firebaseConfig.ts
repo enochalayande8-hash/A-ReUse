@@ -1,3 +1,4 @@
+import './safeStorage';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore, Firestore } from 'firebase/firestore';
 import {
@@ -10,6 +11,8 @@ import {
   onAuthStateChanged,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   User as FirebaseUser,
   Auth,
 } from 'firebase/auth';
@@ -80,6 +83,8 @@ export {
   updateFirebaseProfile,
   onAuthStateChanged,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
 };
 export type { FirebaseUser };
 export { db as firestore };

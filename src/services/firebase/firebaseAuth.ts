@@ -7,23 +7,48 @@ import {
   updateFirebaseProfile,
   onAuthStateChanged,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   googleProvider,
   FirebaseUser,
 } from './firebaseConfig';
 
 /**
- * Format Firebase Auth errors into clear, friendly messages
+ * Format Firebase Auth errors into clear, friendly, and actionable messages
  */
 export function formatFirebaseAuthError(error: any): string {
   if (!error) return 'An unexpected authentication error occurred.';
   const code = error.code || '';
+  const message = error.message || '';
+
+  if (
+    code === 'auth/missing-initial-state' ||
+    message.includes('missing initial state') ||
+    message.includes('sessionStorage is inaccessible') ||
+    message.includes('storage-partitioned')
+  ) {
+    return 'Google Sign-In is restricted inside downloadable APK webviews because Android isolates popup session storage. Please sign in or register with your Email and Password below for instant access inside the APK.';
+  }
+
+  if (code === 'auth/popup-blocked' || message.includes('popup-blocked')) {
+    return 'The sign-in popup was blocked by your browser or app. Please sign in with your Email and Password below.';
+  }
+
+  if (code === 'auth/web-storage-unsupported' || message.includes('web-storage-unsupported')) {
+    return 'Web storage is disabled or restricted in this environment. Please sign in with your Email and Password below.';
+  }
+
+  if (code === 'auth/account-exists-with-different-credential') {
+    return 'An account already exists with this email address. Please sign in with your email and password.';
+  }
+
   switch (code) {
     case 'auth/invalid-email':
       return 'The email address is invalid.';
     case 'auth/user-disabled':
       return 'This user account has been disabled.';
     case 'auth/user-not-found':
-      return 'No account exists with this email address.';
+      return 'No account exists with this email address. Please click Sign Up below to create your account.';
     case 'auth/wrong-password':
     case 'auth/invalid-credential':
       return 'Incorrect email or password. Please verify your credentials and try again.';
@@ -55,6 +80,9 @@ export {
   updateFirebaseProfile,
   onAuthStateChanged,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   googleProvider,
 };
 export type { FirebaseUser };
+

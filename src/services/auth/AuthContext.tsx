@@ -11,6 +11,8 @@ import {
   updateFirebaseProfile,
   onAuthStateChanged,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   googleProvider,
   formatFirebaseAuthError,
 } from '../firebase/firebaseAuth';
@@ -157,6 +159,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isMounted = false;
       };
     }
+
+    // Check if user is returning from a Google OAuth redirect (e.g. mobile browsers / WebViews)
+    getRedirectResult(auth)
+      .then(async (result) => {
+        if (result && result.user && isMounted) {
+          try {
+            const session = await resolveUserSession(result.user);
+            setStoredToken(session.token);
+            setToken(session.token);
+            setUser(session.user);
+          } catch (resErr) {
+            console.warn('[Auth] Redirect resolution note:', resErr);
+          }
+        }
+      })
+      .catch((redirectErr: any) => {
+        // Silently log redirect state notes without breaking boot
+        if (
+          redirectErr?.code !== 'auth/missing-initial-state' &&
+          redirectErr?.code !== 'auth/null-user'
+        ) {
+          console.warn('[Firebase Auth] Redirect result status:', redirectErr?.code || redirectErr?.message);
+        }
+      });
 
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       if (!isMounted) return;
@@ -336,12 +362,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error('Google Authentication is initializing. Please sign in with email and password in the meantime.');
       }
 
-      const result = await signInWithPopup(auth, googleProvider);
-      const session = await resolveUserSession(result.user);
+      let resultUser = null;
+      try {
+        const result = await signInWithPopup(auth, googleProvider);
+        resultUser = result.user;
+      } catch (popupErr: any) {
+        if (popupErr?.code === 'auth/popup-closed-by-user' || popupErr?.code === 'auth/cancelled-popup-request') {
+          return;
+        }
 
-      setStoredToken(session.token);
-      setToken(session.token);
-      setUser(session.user);
+        const isStorageOrPopupBlocked =
+          popupErr?.code === 'auth/missing-initial-state' ||
+          popupErr?.code === 'auth/popup-blocked' ||
+          popupErr?.code === 'auth/web-storage-unsupported' ||
+          (popupErr?.message && popupErr.message.includes('missing initial state'));
+
+        if (isStorageOrPopupBlocked) {
+          try {
+            await signInWithRedirect(auth, googleProvider);
+            return;
+          } catch (redirectErr: any) {
+            console.warn('[Firebase Auth] Redirect fallback notice:', redirectErr);
+            throw new Error(
+              'Google Sign-In is restricted inside downloadable APK webviews because Android isolates popup session storage. Please sign in or register with your Email and Password below for instant access inside the APK.'
+            );
+          }
+        }
+
+        throw popupErr;
+      }
+
+      if (resultUser) {
+        const session = await resolveUserSession(resultUser);
+        setStoredToken(session.token);
+        setToken(session.token);
+        setUser(session.user);
+      }
     } catch (err: any) {
       if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') {
         return;
@@ -349,7 +405,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (err?.code === 'auth/unauthorized-domain') {
         throw new Error('This domain is not yet authorized in Firebase Console. Please add your deployment domain to Firebase Authentication -> Settings -> Authorized domains.');
       }
-      throw new Error(formatFirebaseAuthError(err) || 'Google Sign-In was unsuccessful.');
+      throw new Error(formatFirebaseAuthError(err) || err.message || 'Google Sign-In was unsuccessful.');
     } finally {
       setIsLoading(false);
     }

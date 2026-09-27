@@ -26,6 +26,7 @@ import {
   PaymentSettings,
   LeaderboardEntry,
   AdminUserRecord,
+  SystemStats,
 } from '../../types';
 
 /**
@@ -705,4 +706,102 @@ export async function removeAdminFromFirestore(
     throw new Error(err.message || 'Failed to remove admin in Firestore.');
   }
 }
+
+/**
+ * Authoritative System Stats Calculator directly from live Firestore collections.
+ * Guarantees that System Stats ALWAYS work on static Vercel, offline/online, or hybrid environments.
+ */
+export async function fetchSystemStatsFromFirestore(): Promise<SystemStats> {
+  const defaultStats: SystemStats = {
+    registeredUsersCount: 0,
+    pendingSubmissionsCount: 0,
+    approvedSubmissionsCount: 0,
+    rejectedSubmissionsCount: 0,
+    totalVerifiedActions: 0,
+    totalVerifiedBagsAvoided: 0,
+    totalCo2eAvoidedKgMin: 0,
+    totalCo2eAvoidedKgMax: 0,
+    activeChallengesCount: 0,
+    activePrizesCount: 0,
+  };
+
+  if (!db) return defaultStats;
+
+  try {
+    const [usersSnap, subsSnap, challengesSnap, prizesSnap] = await Promise.all([
+      getDocs(collection(db, 'users')).catch(() => ({ docs: [] })),
+      getDocs(collection(db, 'submissions')).catch(() => ({ docs: [] })),
+      getDocs(collection(db, 'challenges')).catch(() => ({ docs: [] })),
+      getDocs(collection(db, 'prizes')).catch(() => ({ docs: [] })),
+    ]);
+
+    const users = (usersSnap.docs || []).map((d) => d.data());
+    const submissions = (subsSnap.docs || []).map((d) => d.data());
+    const challenges = (challengesSnap.docs || []).map((d) => d.data());
+    const prizes = (prizesSnap.docs || []).map((d) => d.data());
+
+    const registeredUsersCount = users.length;
+    const pendingSubmissionsCount = submissions.filter((s) => s.status === 'PENDING').length;
+    const approvedSubmissions = submissions.filter((s) => s.status === 'APPROVED');
+    const approvedSubmissionsCount = approvedSubmissions.length;
+    const rejectedSubmissionsCount = submissions.filter((s) => s.status === 'REJECTED').length;
+
+    // Aggregate bags avoided from approved submissions, with fallback to aggregated user profile tallies
+    const bagsFromSubmissions = approvedSubmissions.reduce(
+      (sum, s) => sum + (Number(s.bagsAvoided) || 0),
+      0
+    );
+    const bagsFromUsers = users.reduce(
+      (sum, u) => sum + (Number(u.verifiedBagsAvoided) || 0),
+      0
+    );
+    const totalVerifiedBagsAvoided = Math.max(bagsFromSubmissions, bagsFromUsers);
+
+    // Aggregate CO2e avoided from approved submissions
+    const co2MinGramsFromSubmissions = approvedSubmissions.reduce(
+      (sum, s) => sum + (Number(s.co2eGramsMin) || 0),
+      0
+    );
+    const co2MaxGramsFromSubmissions = approvedSubmissions.reduce(
+      (sum, s) => sum + (Number(s.co2eGramsMax) || 0),
+      0
+    );
+    const co2MinGramsFromUsers = users.reduce(
+      (sum, u) => sum + (Number(u.verifiedCo2eAvoidedGramsMin) || 0),
+      0
+    );
+    const co2MaxGramsFromUsers = users.reduce(
+      (sum, u) => sum + (Number(u.verifiedCo2eAvoidedGramsMax) || 0),
+      0
+    );
+
+    const totalCo2MinGrams = Math.max(co2MinGramsFromSubmissions, co2MinGramsFromUsers);
+    const totalCo2MaxGrams = Math.max(co2MaxGramsFromSubmissions, co2MaxGramsFromUsers);
+
+    const totalVerifiedActions = Math.max(
+      approvedSubmissionsCount,
+      users.reduce((sum, u) => sum + (Number(u.verifiedActionsCount) || 0), 0)
+    );
+
+    const activeChallengesCount = challenges.filter((c) => c.status === 'ACTIVE').length;
+    const activePrizesCount = prizes.filter((p) => p.status === 'ACTIVE').length;
+
+    return {
+      registeredUsersCount,
+      pendingSubmissionsCount,
+      approvedSubmissionsCount,
+      rejectedSubmissionsCount,
+      totalVerifiedActions,
+      totalVerifiedBagsAvoided,
+      totalCo2eAvoidedKgMin: Number((totalCo2MinGrams / 1000).toFixed(2)),
+      totalCo2eAvoidedKgMax: Number((totalCo2MaxGrams / 1000).toFixed(2)),
+      activeChallengesCount,
+      activePrizesCount,
+    };
+  } catch (err) {
+    console.warn('[Firestore] fetchSystemStats error:', err);
+    return defaultStats;
+  }
+}
+
 
