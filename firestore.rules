@@ -120,7 +120,16 @@ service cloud.firestore {
     match /communityPosts/{postId} {
       allow get, list: if true;
       allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow update: if isAdmin() ||
+        (isSignedIn() && resource.data.userId == request.auth.uid) ||
+        (isSignedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions', 'likesCount']));
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+    }
+
+    // Temporary Auth Handoffs for Android APK / Chrome Google OAuth
+    match /auth_handoffs/{handoffId} {
+      allow get, list: if true;
+      allow create, update, delete: if true;
     }
 
     // Organization & Impact Settings (Public read, write by Admins & Top Admin)

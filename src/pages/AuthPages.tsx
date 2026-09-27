@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../services/auth/AuthContext';
-import { Mail, Lock, Eye, EyeOff, User, AlertCircle, CheckCircle2, ArrowLeft, ExternalLink } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, User, AlertCircle, CheckCircle2, ArrowLeft, ExternalLink, RefreshCw } from 'lucide-react';
 import { BrandLogo } from '../components/BrandLogo';
+import { startChromeGoogleAuthHandoff, listenForHandoffCompletion } from '../services/auth/chromeAuthHandoff';
 
 interface AuthPagesProps {
   initialMode?: 'login' | 'signup' | 'forgot-password';
@@ -14,7 +15,7 @@ export const AuthPages: React.FC<AuthPagesProps> = ({
   onSuccess,
   onClose,
 }) => {
-  const { login, signup, loginWithGoogle, forgotPassword } = useAuth();
+  const { login, signup, loginWithGoogle, loginWithHandoffData, forgotPassword } = useAuth();
   const [mode, setMode] = useState<'login' | 'signup' | 'forgot-password'>(initialMode);
 
   // Form fields
@@ -28,14 +29,17 @@ export const AuthPages: React.FC<AuthPagesProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [chromeWaiting, setChromeWaiting] = useState(false);
+  const [activeHandoff, setActiveHandoff] = useState<{ handoffId: string; chromeUrl: string; intentUrl: string } | null>(null);
 
-  const isAndroidApp = React.useMemo(() => {
+  const isAndroidOrMobileApp = React.useMemo(() => {
     if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
     const ua = navigator.userAgent || '';
-    return (
-      /wv|Version\/4\.0|Webintoapp/i.test(ua) ||
-      (/Android/i.test(ua) && /Mobile/i.test(ua) && !/Chrome\/[0-9]+/i.test(ua))
-    );
+    const isAndroid = /Android/i.test(ua);
+    const isWebView = /wv|Version\/4\.0|Webintoapp|WebView/i.test(ua);
+    const isMobile = /Mobile|Android|iPhone|iPad/i.test(ua);
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone;
+    return isAndroid || isWebView || isMobile || isStandalone;
   }, []);
 
   const clearForm = () => {
@@ -43,7 +47,71 @@ export const AuthPages: React.FC<AuthPagesProps> = ({
     setSuccessMsg(null);
   };
 
+  const startChromeFlow = async () => {
+    clearForm();
+    setIsLoading(true);
+    setChromeWaiting(true);
+
+    try {
+      const handoff = await startChromeGoogleAuthHandoff();
+      setActiveHandoff(handoff);
+
+      // Listen for the handoff to complete in Chrome
+      const unsubscribe = listenForHandoffCompletion(
+        handoff.handoffId,
+        async (authData) => {
+          try {
+            if (loginWithHandoffData) {
+              await loginWithHandoffData(authData);
+            }
+            setChromeWaiting(false);
+            setSuccessMsg(`Welcome, ${authData.fullName || authData.email}! Signed in successfully.`);
+            setTimeout(() => {
+              if (onSuccess) onSuccess();
+              if (onClose) onClose();
+            }, 600);
+          } catch (err: any) {
+            setError(err.message || 'Authentication error.');
+          } finally {
+            setIsLoading(false);
+          }
+        },
+        (listenerErr) => {
+          console.warn('[AuthPages] Handoff listener note:', listenerErr);
+        }
+      );
+
+      // Launch Google Chrome via Android intent
+      try {
+        window.location.href = handoff.intentUrl;
+      } catch {}
+
+      // Fallback: also try window.open if intent was blocked
+      setTimeout(() => {
+        try {
+          window.open(handoff.chromeUrl, '_system');
+        } catch {}
+      }, 400);
+
+      // Auto unsubscribe after 5 minutes
+      setTimeout(() => {
+        unsubscribe();
+      }, 300000);
+    } catch (err: any) {
+      setError(err.message || 'Could not launch Google Chrome.');
+      setChromeWaiting(false);
+      setIsLoading(false);
+    }
+  };
+
   const handleGoogleSignIn = async () => {
+    // If in Android / Mobile / WebView, lead directly to Chrome handoff
+    if (isAndroidOrMobileApp) {
+      await startChromeFlow();
+      return;
+    }
+
+    // Otherwise attempt standard popup, with seamless fallback to Chrome handoff
     clearForm();
     setIsLoading(true);
     try {
@@ -51,6 +119,17 @@ export const AuthPages: React.FC<AuthPagesProps> = ({
       if (onSuccess) onSuccess();
       if (onClose) onClose();
     } catch (err: any) {
+      const isStorageIssue =
+        err?.message?.includes('missing initial state') ||
+        err?.message?.includes('storage-partitioned') ||
+        err?.message?.includes('APK webviews') ||
+        err?.message?.includes('sessionStorage');
+
+      if (isStorageIssue) {
+        // Automatically switch to Chrome handoff
+        await startChromeFlow();
+        return;
+      }
       setError(err.message || 'Google sign-in could not be completed.');
     } finally {
       setIsLoading(false);
@@ -213,24 +292,68 @@ export const AuthPages: React.FC<AuthPagesProps> = ({
         </div>
       )}
 
-      {/* Android APK Detection notice */}
-      {isAndroidApp && (mode === 'login' || mode === 'signup') && (
+      {/* Android / Mobile Detection notice */}
+      {isAndroidOrMobileApp && (mode === 'login' || mode === 'signup') && (
         <div className="mb-3 p-2.5 rounded-xl bg-[#2C1810]/5 border border-[#2C1810]/10 text-[#5D4037] text-[11px] flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0 animate-pulse" />
           <span>
-            <strong>Android App Mode:</strong> Sign in with Email & Password below for instant access.
+            <strong>Android & Mobile Mode:</strong> Google sign-in opens Chrome safely, or sign in with Email & Password below.
           </span>
         </div>
       )}
 
+      {/* Chrome Google OAuth Waiting State */}
+      {chromeWaiting && (
+        <div className="py-6 px-4 rounded-2xl bg-amber-50 border-2 border-[#D4AF37] text-center space-y-4 mb-4 animate-fadeIn">
+          <div className="w-10 h-10 border-3 border-[#D4AF37] border-t-transparent rounded-full animate-spin mx-auto" />
+          <div>
+            <h3 className="text-sm font-bold text-[#2C1810]">
+              Signing In with Google via Chrome...
+            </h3>
+            <p className="text-xs text-[#795548] mt-1 max-w-xs mx-auto leading-relaxed">
+              Google Chrome was opened to authenticate your account safely. Complete sign-in in Chrome and this app will automatically connect!
+            </p>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-1">
+            {activeHandoff && (
+              <a
+                href={activeHandoff.chromeUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => {
+                  try {
+                    window.location.href = activeHandoff.intentUrl;
+                  } catch {}
+                }}
+                className="w-full sm:w-auto px-4 py-2 rounded-xl bg-[#2C1810] text-[#FDFBF7] text-xs font-bold hover:bg-[#3E2723] flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+              >
+                <ExternalLink className="w-3.5 h-3.5 text-[#D4AF37]" />
+                <span>Open Google Chrome</span>
+              </a>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setChromeWaiting(false);
+                setIsLoading(false);
+              }}
+              className="w-full sm:w-auto px-4 py-2 rounded-xl bg-white border border-[#2C1810]/20 text-[#2C1810] text-xs font-semibold hover:bg-white/80 cursor-pointer"
+            >
+              Cancel & Use Email
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Google Quick Sign-In Option for login & signup */}
-      {(mode === 'login' || mode === 'signup') && (
+      {!chromeWaiting && (mode === 'login' || mode === 'signup') && (
         <div className="space-y-3 mb-4">
           <button
             type="button"
             onClick={handleGoogleSignIn}
             disabled={isLoading}
-            className="w-full py-2.5 px-4 rounded-xl bg-white border border-[#2C1810]/20 hover:bg-[#FDFBF7] text-[#2C1810] text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-50"
+            className="w-full py-2.5 px-4 rounded-xl bg-white border border-[#2C1810]/20 hover:border-[#D4AF37] hover:bg-[#FDFBF7] text-[#2C1810] text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-50 active:scale-98"
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24">
               <path
@@ -250,7 +373,15 @@ export const AuthPages: React.FC<AuthPagesProps> = ({
                 d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
               />
             </svg>
-            <span>{mode === 'login' ? 'Continue with Google' : 'Sign up with Google'}</span>
+            <span>
+              {mode === 'login'
+                ? isAndroidOrMobileApp
+                  ? 'Sign in with Google via Chrome'
+                  : 'Continue with Google'
+                : isAndroidOrMobileApp
+                ? 'Sign up with Google via Chrome'
+                : 'Sign up with Google'}
+            </span>
           </button>
 
           <div className="relative flex items-center justify-center">

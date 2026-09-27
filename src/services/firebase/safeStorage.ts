@@ -186,8 +186,8 @@ export function isAndroidAppOrWebView(): boolean {
     ua.includes('wv') ||
     ua.includes('webintoapp') ||
     ua.includes('version/4.0') ||
-    (ua.includes('android') && !ua.includes('chrome/')) ||
-    (ua.includes('android') && ua.includes('mobile') && ua.includes('version/'))
+    ua.includes('android') ||
+    ua.includes('mobile')
   );
 }
 

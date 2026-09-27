@@ -106,6 +106,26 @@
         "timestamp": { "type": "string" }
       },
       "required": ["adminId", "adminEmail", "action", "details", "timestamp"]
+    },
+    "CommunityPost": {
+      "title": "CommunityPost",
+      "description": "Community discourse, member updates, photo attachments, and reactions.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "userName": { "type": "string", "maxLength": 100 },
+        "userRole": { "type": "string" },
+        "title": { "type": "string", "maxLength": 300 },
+        "content": { "type": "string", "maxLength": 10000 },
+        "category": { "type": "string", "enum": ["CAMPAIGN", "DISCUSSION", "ACHIEVEMENT", "INITIATIVE"] },
+        "createdAt": { "type": "string" },
+        "likesCount": { "type": "number" },
+        "imageUrl": { "type": "string", "maxLength": 5000000 },
+        "isPinned": { "type": "boolean" },
+        "pinnedAt": { "type": "string" },
+        "pinnedBy": { "type": "string", "maxLength": 120 }
+      },
+      "required": ["userId", "title", "content", "category", "createdAt"]
     }
   },
   "firestore": {
@@ -134,7 +154,11 @@
       "description": "System administrative audit log records."
     },
     "/communityPosts/{postId}": {
-      "description": "Community discourse and movement updates."
+      "schema": "CommunityPost",
+      "description": "Community discourse, member tips, photo uploads, and peer reactions."
+    },
+    "/auth_handoffs/{handoffId}": {
+      "description": "Temporary Android APK / Chrome Google OAuth communication records."
     },
     "/settings/{settingId}": {
       "description": "Organizational, impact calculation, and payment settings."

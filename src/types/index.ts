@@ -183,11 +183,17 @@ export interface CommunityPost {
   id: string;
   userId: string;
   userName: string;
+  userRole?: 'TOP_ADMIN' | 'ADMIN' | 'REGISTERED_USER';
   title: string;
   content: string;
   category: 'CAMPAIGN' | 'DISCUSSION' | 'ACHIEVEMENT' | 'INITIATIVE';
   createdAt: string;
   likesCount: number;
+  imageUrl?: string;
+  isPinned?: boolean;
+  pinnedAt?: string;
+  pinnedBy?: string;
+  reactions?: Record<string, string[]>;
 }
 
 export interface LeaderboardEntry {

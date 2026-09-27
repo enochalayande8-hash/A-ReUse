@@ -325,11 +325,17 @@ interface DbSchema {
     id: string;
     userId: string;
     userName: string;
+    userRole?: string;
     title: string;
     content: string;
     category: 'CAMPAIGN' | 'DISCUSSION' | 'ACHIEVEMENT' | 'INITIATIVE';
     createdAt: string;
     likesCount: number;
+    imageUrl?: string;
+    isPinned?: boolean;
+    pinnedAt?: string;
+    pinnedBy?: string;
+    reactions?: Record<string, string[]>;
   }>;
   impactSettings: typeof DEFAULT_IMPACT_SETTINGS;
   orgProfile: typeof DEFAULT_ORG_PROFILE;
@@ -2035,12 +2041,17 @@ async function startServer() {
 
   // Community posts (Public & Authenticated)
   app.get('/api/community/posts', (req, res) => {
-    res.json({ posts: db.communityPosts });
+    const sorted = [...db.communityPosts].sort((a, b) => {
+      if (a.isPinned && !b.isPinned) return -1;
+      if (!a.isPinned && b.isPinned) return 1;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+    res.json({ posts: sorted });
   });
 
   app.post('/api/community/posts', requireAuth, (req, res) => {
     const user = (req as any).user as DbSchema['users'][0];
-    const { title, content, category } = req.body;
+    const { title, content, category, imageUrl } = req.body;
 
     if (!title || !content) {
       return res.status(400).json({ error: 'Title and content are required.' });
@@ -2050,16 +2061,64 @@ async function startServer() {
       id: 'post_' + crypto.randomUUID(),
       userId: user.id,
       userName: user.fullName,
+      userRole: user.role,
       title: String(title).trim(),
       content: String(content).trim(),
       category: category || 'DISCUSSION',
       createdAt: new Date().toISOString(),
       likesCount: 0,
+      isPinned: false,
+      reactions: {},
+      ...(imageUrl ? { imageUrl } : {}),
     };
 
     db.communityPosts.unshift(newPost);
     saveDatabase(db);
     res.status(201).json({ post: newPost, message: 'Post shared to the movement!' });
+  });
+
+  app.post('/api/community/posts/:id/react', requireAuth, (req, res) => {
+    const user = (req as any).user as DbSchema['users'][0];
+    const { emoji } = req.body;
+    const post = db.communityPosts.find(p => p.id === req.params.id);
+    if (!post) return res.status(404).json({ error: 'Post not found.' });
+
+    if (!emoji || typeof emoji !== 'string') {
+      return res.status(400).json({ error: 'Emoji is required.' });
+    }
+
+    if (!post.reactions) post.reactions = {};
+    const userList = post.reactions[emoji] || [];
+    const index = userList.indexOf(user.id);
+    if (index > -1) {
+      userList.splice(index, 1);
+    } else {
+      userList.push(user.id);
+    }
+    post.reactions[emoji] = userList;
+    post.likesCount = Object.values(post.reactions).reduce((sum, list) => sum + list.length, 0);
+
+    saveDatabase(db);
+    res.json({ post, message: 'Reaction updated.' });
+  });
+
+  app.post('/api/community/posts/:id/pin', requireAdmin, (req, res) => {
+    const user = (req as any).user as DbSchema['users'][0];
+    const { isPinned } = req.body;
+    const post = db.communityPosts.find(p => p.id === req.params.id);
+    if (!post) return res.status(404).json({ error: 'Post not found.' });
+
+    post.isPinned = Boolean(isPinned);
+    if (post.isPinned) {
+      post.pinnedAt = new Date().toISOString();
+      post.pinnedBy = user.fullName || user.email;
+    } else {
+      delete post.pinnedAt;
+      delete post.pinnedBy;
+    }
+
+    saveDatabase(db);
+    res.json({ post, message: post.isPinned ? 'Post pinned to top.' : 'Post unpinned.' });
   });
 
   // Health check

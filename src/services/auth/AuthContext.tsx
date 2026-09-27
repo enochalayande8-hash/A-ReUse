@@ -413,6 +413,60 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const loginWithHandoffData = async (data: { uid: string; email: string; fullName: string; token: string }) => {
+    setIsLoading(true);
+    try {
+      const cleanEmail = (data.email || '').toLowerCase().trim();
+      const isTop = isDesignatedTopAdmin(cleanEmail, data.uid);
+
+      let existingUser: User | null = null;
+      try {
+        existingUser = await getUserFromFirestore(data.uid);
+      } catch (fsErr) {
+        console.warn('[Firestore] Note reading user document on handoff:', fsErr);
+      }
+
+      if (existingUser) {
+        if (isTop) {
+          existingUser.role = 'TOP_ADMIN';
+          ensureAdminRecordInFirestore(data.uid, cleanEmail, data.fullName || existingUser.fullName, 'TOP_ADMIN').catch(() => {});
+        }
+        setStoredToken(data.token);
+        setToken(data.token);
+        setUser(existingUser);
+        return;
+      }
+
+      const initialRole: 'TOP_ADMIN' | 'ADMIN' | 'REGISTERED_USER' = isTop ? 'TOP_ADMIN' : 'REGISTERED_USER';
+      if (initialRole === 'TOP_ADMIN') {
+        ensureAdminRecordInFirestore(data.uid, cleanEmail, data.fullName, initialRole).catch(() => {});
+      }
+
+      const newUser: User = {
+        id: data.uid,
+        firebaseUid: data.uid,
+        email: cleanEmail,
+        fullName: data.fullName || cleanEmail.split('@')[0] || 'Movement Member',
+        role: initialRole,
+        accountStatus: 'ACTIVE',
+        createdAt: new Date().toISOString(),
+        verifiedActionsCount: 0,
+        verifiedPoints: 0,
+        verifiedReusableBagUses: 0,
+        verifiedBagsAvoided: 0,
+        verifiedCo2eAvoidedGramsMin: 0,
+        verifiedCo2eAvoidedGramsMax: 0,
+      };
+
+      await saveUserToFirestore(newUser).catch(() => {});
+      setStoredToken(data.token);
+      setToken(data.token);
+      setUser(newUser);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const logout = async () => {
     setIsLoading(true);
     try {
@@ -564,6 +618,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         login,
         signup,
         loginWithGoogle,
+        loginWithHandoffData,
         logout,
         forgotPassword,
         claimTopAdmin,

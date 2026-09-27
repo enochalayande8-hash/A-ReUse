@@ -289,9 +289,21 @@ export const api = {
   getCommunityPosts: () =>
     request<{ posts: CommunityPost[] }>('/api/community/posts'),
 
-  createCommunityPost: (payload: { title: string; content: string; category: string }) =>
+  createCommunityPost: (payload: { title: string; content: string; category: string; imageUrl?: string }) =>
     request<{ post: CommunityPost; message: string }>('/api/community/posts', {
       method: 'POST',
       body: JSON.stringify(payload),
+    }),
+
+  reactToCommunityPost: (postId: string, emoji: string) =>
+    request<{ post: CommunityPost; message: string }>(`/api/community/posts/${postId}/react`, {
+      method: 'POST',
+      body: JSON.stringify({ emoji }),
+    }),
+
+  pinCommunityPost: (postId: string, isPinned: boolean) =>
+    request<{ post: CommunityPost; message: string }>(`/api/community/posts/${postId}/pin`, {
+      method: 'POST',
+      body: JSON.stringify({ isPinned }),
     }),
 };

@@ -231,9 +231,22 @@ export async function savePrizeToFirestore(prize: Prize): Promise<void> {
 export async function fetchCommunityPostsFromFirestore(): Promise<CommunityPost[]> {
   if (!db) return [];
   try {
-    const q = query(collection(db, 'communityPosts'), orderBy('createdAt', 'desc'));
-    const snap = await getDocs(q);
-    return snap.docs.map(d => ({ id: d.id, ...d.data() } as CommunityPost));
+    let docsData: CommunityPost[] = [];
+    try {
+      const q = query(collection(db, 'communityPosts'), orderBy('createdAt', 'desc'));
+      const snap = await getDocs(q);
+      docsData = snap.docs.map(d => ({ id: d.id, ...d.data() } as CommunityPost));
+    } catch {
+      const snap = await getDocs(collection(db, 'communityPosts'));
+      docsData = snap.docs.map(d => ({ id: d.id, ...d.data() } as CommunityPost));
+    }
+
+    // Always sort pinned posts to the top, then date descending
+    return docsData.sort((a, b) => {
+      if (a.isPinned && !b.isPinned) return -1;
+      if (!a.isPinned && b.isPinned) return 1;
+      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+    });
   } catch (err) {
     console.warn('[Firestore] fetchCommunityPosts error:', err);
     return [];
@@ -247,6 +260,70 @@ export async function addCommunityPostToFirestore(post: CommunityPost): Promise<
     await setDoc(postRef, post);
   } catch (err) {
     console.warn('[Firestore] addCommunityPost error:', err);
+  }
+}
+
+export async function toggleReactionInFirestore(
+  postId: string,
+  emoji: string,
+  userId: string
+): Promise<Record<string, string[]> | null> {
+  if (!db || !postId || !emoji || !userId) return null;
+  try {
+    const postRef = doc(db, 'communityPosts', postId);
+    const snap = await getDoc(postRef);
+    if (!snap.exists()) return null;
+
+    const data = snap.data();
+    const reactions: Record<string, string[]> = { ...(data.reactions || {}) };
+    const currentList: string[] = [...(reactions[emoji] || [])];
+    const userIndex = currentList.indexOf(userId);
+
+    if (userIndex > -1) {
+      currentList.splice(userIndex, 1);
+    } else {
+      currentList.push(userId);
+    }
+    reactions[emoji] = currentList;
+
+    const totalLikes = Object.values(reactions).reduce((sum, list) => sum + list.length, 0);
+
+    await updateDoc(postRef, {
+      reactions,
+      likesCount: totalLikes,
+    });
+
+    return reactions;
+  } catch (err) {
+    console.warn('[Firestore] toggleReactionInFirestore error:', err);
+    return null;
+  }
+}
+
+export async function togglePinInFirestore(
+  postId: string,
+  isPinned: boolean,
+  adminUser?: User | null
+): Promise<boolean> {
+  if (!db || !postId) return false;
+  try {
+    const postRef = doc(db, 'communityPosts', postId);
+    const updatePayload: Record<string, any> = {
+      isPinned,
+    };
+    if (isPinned) {
+      updatePayload.pinnedAt = new Date().toISOString();
+      updatePayload.pinnedBy = adminUser?.fullName || adminUser?.email || 'Admin';
+    } else {
+      updatePayload.pinnedAt = null;
+      updatePayload.pinnedBy = null;
+    }
+
+    await updateDoc(postRef, updatePayload);
+    return true;
+  } catch (err) {
+    console.warn('[Firestore] togglePinInFirestore error:', err);
+    return false;
   }
 }
 
@@ -358,8 +435,8 @@ export async function ensureAdminRecordInFirestore(
 
 export function compressImageToDataUrl(
   file: File,
-  maxDimension = 400,
-  quality = 0.88
+  maxDimension = 1000,
+  quality = 0.72
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     if (file.type === 'image/svg+xml') {
@@ -390,11 +467,17 @@ export function compressImageToDataUrl(
         canvas.height = height;
         const ctx = canvas.getContext('2d');
         if (ctx) {
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(0, 0, width, height);
           ctx.imageSmoothingEnabled = true;
           ctx.imageSmoothingQuality = 'high';
           ctx.drawImage(img, 0, 0, width, height);
-          const mime = file.type === 'image/png' ? 'image/png' : 'image/webp';
-          resolve(canvas.toDataURL(mime, mime === 'image/webp' ? quality : undefined));
+          try {
+            const jpegDataUrl = canvas.toDataURL('image/jpeg', quality);
+            resolve(jpegDataUrl);
+          } catch {
+            resolve(canvas.toDataURL('image/jpeg', 0.75));
+          }
         } else {
           resolve(src);
         }

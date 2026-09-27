@@ -14,6 +14,7 @@ import { ConnectPage } from './pages/ConnectPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { AdminReviewPage } from './pages/AdminReviewPage';
 import { TopAdminPanel } from './pages/TopAdminPanel';
+import { ChromeAuthReceiver } from './components/ChromeAuthReceiver';
 import { api } from './services/api';
 import {
   fetchChallengesFromFirestore,
@@ -285,6 +286,15 @@ const MainContent: React.FC = () => {
 };
 
 export function App() {
+  const [handoffId] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    return new URLSearchParams(window.location.search).get('google_auth_handoff');
+  });
+
+  if (handoffId) {
+    return <ChromeAuthReceiver handoffId={handoffId} />;
+  }
+
   return (
     <AuthProvider>
       <MainContent />
