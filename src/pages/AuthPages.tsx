@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../services/auth/AuthContext';
-import { Mail, Lock, Eye, EyeOff, User, AlertCircle, CheckCircle2, ArrowLeft } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, User, AlertCircle, CheckCircle2, ArrowLeft, ExternalLink } from 'lucide-react';
 import { BrandLogo } from '../components/BrandLogo';
 
 interface AuthPagesProps {
@@ -192,6 +192,15 @@ export const AuthPages: React.FC<AuthPagesProps> = ({
               >
                 Set Password for Gmail
               </button>
+              <a
+                href={typeof window !== 'undefined' ? window.location.href : '#'}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-2.5 py-1 rounded-lg bg-white border border-[#2C1810]/20 text-[#2C1810] text-[11px] font-semibold hover:bg-[#FDFBF7] transition-all cursor-pointer flex items-center gap-1"
+              >
+                <ExternalLink className="w-3 h-3 text-[#8D6E63]" />
+                <span>Open in Chrome</span>
+              </a>
             </div>
           )}
         </div>

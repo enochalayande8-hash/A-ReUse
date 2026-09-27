@@ -22,6 +22,7 @@ import {
   checkIfUserIsAdminInFirestore,
   ensureAdminRecordInFirestore,
 } from '../firebase/firestoreService';
+import { isAndroidAppOrWebView } from '../firebase/safeStorage';
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
@@ -362,6 +363,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error('Google Authentication is initializing. Please sign in with email and password in the meantime.');
       }
 
+      // Check if running inside an Android APK WebView (e.g. Webintoapp)
+      if (isAndroidAppOrWebView()) {
+        throw new Error(
+          'Google Sign-In is restricted inside downloadable APK webviews because Android isolates popup session storage. Please sign in or register with your Email and Password below for instant access inside the APK.'
+        );
+      }
+
       let resultUser = null;
       try {
         const result = await signInWithPopup(auth, googleProvider);
@@ -378,15 +386,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           (popupErr?.message && popupErr.message.includes('missing initial state'));
 
         if (isStorageOrPopupBlocked) {
-          try {
-            await signInWithRedirect(auth, googleProvider);
-            return;
-          } catch (redirectErr: any) {
-            console.warn('[Firebase Auth] Redirect fallback notice:', redirectErr);
-            throw new Error(
-              'Google Sign-In is restricted inside downloadable APK webviews because Android isolates popup session storage. Please sign in or register with your Email and Password below for instant access inside the APK.'
-            );
-          }
+          throw new Error(
+            'Google Sign-In is restricted inside downloadable APK webviews because Android isolates popup session storage. Please sign in or register with your Email and Password below for instant access inside the APK.'
+          );
         }
 
         throw popupErr;

@@ -174,3 +174,20 @@ export function initStorageResilience(): void {
 
 // Auto-run immediately when module is imported
 initStorageResilience();
+
+/**
+ * Accurately detects if the app is currently running inside an Android WebView
+ * or APK wrapper (such as Webintoapp, Capacitor, Cordova, etc.) where OAuth popups are restricted.
+ */
+export function isAndroidAppOrWebView(): boolean {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  const ua = (navigator.userAgent || '').toLowerCase();
+  return (
+    ua.includes('wv') ||
+    ua.includes('webintoapp') ||
+    ua.includes('version/4.0') ||
+    (ua.includes('android') && !ua.includes('chrome/')) ||
+    (ua.includes('android') && ua.includes('mobile') && ua.includes('version/'))
+  );
+}
+
