@@ -374,12 +374,46 @@ export const TopAdminPanel: React.FC<TopAdminPanelProps> = ({
   // Admin Management Handlers
   const handleAddAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newAdminEmail.trim()) return;
+    const cleanEmail = newAdminEmail.trim().toLowerCase();
+    if (!cleanEmail) return;
+
+    if (!user) {
+      showMsg('error', 'You must be signed in as Top Admin to appoint administrators.');
+      return;
+    }
+
     try {
-      const res = await api.addAdmin(newAdminEmail.trim());
-      showMsg('success', res.message || 'Admin appointed.');
+      let successMessage = `Admin appointed for ${cleanEmail}.`;
+      let addedInBackend = false;
+
+      // 1. Try backend API first (if backend server is active)
+      try {
+        const res = await api.addAdmin(cleanEmail);
+        if (res?.message) successMessage = res.message;
+        addedInBackend = true;
+      } catch (apiErr: any) {
+        console.warn('[TopAdminPanel] Backend API note, persisting directly to Firestore:', apiErr?.message);
+      }
+
+      // 2. Always persist directly to Firestore (guarantees seamless operation on static hosts, Vercel, and Cloud Run)
+      try {
+        const fsRes = await addAdminInFirestore(cleanEmail, {
+          id: user.id || user.firebaseUid || cleanEmail,
+          email: user.email || 'enochalayande8@gmail.com',
+        });
+        if (fsRes?.message && !addedInBackend) {
+          successMessage = fsRes.message;
+        }
+      } catch (fsErr: any) {
+        if (!addedInBackend) {
+          throw fsErr;
+        }
+      }
+
+      showMsg('success', successMessage);
       setNewAdminEmail('');
-      loadAllAdminData();
+      await loadAllAdminData();
+      onRefreshData();
     } catch (err: any) {
       showMsg('error', err.message || 'Failed to appoint admin.');
     }
@@ -392,9 +426,23 @@ export const TopAdminPanel: React.FC<TopAdminPanelProps> = ({
     }
     const newStatus = admin.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
     try {
-      await api.setAdminStatus(admin.adminId, newStatus);
+      let updatedInBackend = false;
+      try {
+        await api.setAdminStatus(admin.adminId, newStatus);
+        updatedInBackend = true;
+      } catch (apiErr) {
+        console.warn('[TopAdminPanel] Backend setAdminStatus note, updating in Firestore:', apiErr);
+      }
+
+      try {
+        await setAdminStatusInFirestore(admin, newStatus);
+      } catch (fsErr) {
+        if (!updatedInBackend) throw fsErr;
+      }
+
       showMsg('success', `Admin status changed to ${newStatus}.`);
-      loadAllAdminData();
+      await loadAllAdminData();
+      onRefreshData();
     } catch (err: any) {
       showMsg('error', err.message || 'Failed to toggle admin status.');
     }
@@ -407,9 +455,23 @@ export const TopAdminPanel: React.FC<TopAdminPanelProps> = ({
     }
     if (!confirm(`Revoke all administrative access from ${admin.email}?`)) return;
     try {
-      await api.removeAdmin(admin.adminId);
+      let removedInBackend = false;
+      try {
+        await api.removeAdmin(admin.adminId);
+        removedInBackend = true;
+      } catch (apiErr) {
+        console.warn('[TopAdminPanel] Backend removeAdmin note, removing from Firestore:', apiErr);
+      }
+
+      try {
+        await removeAdminFromFirestore(admin);
+      } catch (fsErr) {
+        if (!removedInBackend) throw fsErr;
+      }
+
       showMsg('success', 'Admin access revoked.');
-      loadAllAdminData();
+      await loadAllAdminData();
+      onRefreshData();
     } catch (err: any) {
       showMsg('error', err.message || 'Failed to revoke admin.');
     }

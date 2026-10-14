@@ -13,7 +13,7 @@ import {
   onSnapshot,
   limit,
 } from 'firebase/firestore';
-import { db } from './firebaseConfig';
+import { db, auth } from './firebaseConfig';
 import {
   User,
   ProofSubmission,
@@ -657,8 +657,56 @@ export async function fetchLeaderboardFromFirestore(): Promise<LeaderboardEntry[
 }
 
 // ----------------------------------------------------
+// ----------------------------------------------------
 // ADMIN USER MANAGEMENT & ROSTER
 // ----------------------------------------------------
+
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+export interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  };
+}
+
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth?.currentUser?.uid,
+      email: auth?.currentUser?.email,
+      emailVerified: auth?.currentUser?.emailVerified,
+      isAnonymous: auth?.currentUser?.isAnonymous,
+      tenantId: auth?.currentUser?.tenantId,
+      providerInfo: auth?.currentUser?.providerData?.map((provider: any) => ({
+        providerId: provider.providerId,
+        email: provider.email,
+      })) || []
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
 
 export async function checkIfUserIsAdminInFirestore(userId?: string, email?: string): Promise<boolean> {
   if (!db) return false;
@@ -691,7 +739,42 @@ export async function fetchAdminsFromFirestore(): Promise<AdminUserRecord[]> {
   try {
     const q = query(collection(db, 'admins'));
     const snap = await getDocs(q);
-    const admins = snap.docs.map((d) => ({ ...d.data() } as AdminUserRecord));
+    const rawAdmins = snap.docs.map((d) => ({ ...d.data() } as AdminUserRecord));
+
+    // Also include any users marked as ADMIN or TOP_ADMIN in users collection
+    try {
+      const usersSnap = await getDocs(
+        query(collection(db, 'users'), where('role', 'in', ['ADMIN', 'TOP_ADMIN']))
+      );
+      for (const uDoc of usersSnap.docs) {
+        const uData = uDoc.data();
+        const em = (uData.email || '').toLowerCase().trim();
+        if (em && !rawAdmins.some((a) => (a.email || '').toLowerCase().trim() === em)) {
+          rawAdmins.push({
+            adminId: 'adm_' + uDoc.id,
+            userId: uDoc.id,
+            email: em,
+            name: uData.fullName || em.split('@')[0],
+            role: uData.role as 'ADMIN' | 'TOP_ADMIN',
+            status: (uData.accountStatus as 'ACTIVE' | 'INACTIVE') || 'ACTIVE',
+            createdAt: uData.createdAt || new Date().toISOString(),
+            createdBy: 'SYSTEM',
+            creatorEmail: 'SYSTEM',
+          });
+        }
+      }
+    } catch {}
+
+    // Deduplicate by cleanEmail
+    const seen = new Set<string>();
+    const admins: AdminUserRecord[] = [];
+    for (const a of rawAdmins) {
+      const em = (a.email || '').toLowerCase().trim();
+      if (em && !seen.has(em)) {
+        seen.add(em);
+        admins.push(a);
+      }
+    }
     return admins;
   } catch (err) {
     console.warn('[Firestore] fetchAdmins error:', err);
@@ -707,26 +790,40 @@ export async function addAdminInFirestore(
   const cleanEmail = email.trim().toLowerCase();
 
   try {
-    // Find registered user in Firestore
-    const usersSnap = await getDocs(
-      query(collection(db, 'users'), where('email', '==', cleanEmail))
-    );
+    // Check if trying to add Top Admin
+    if (
+      cleanEmail === 'enochalay8@gmail.com' ||
+      cleanEmail === 'enochalayande8@gmail.com' ||
+      cleanEmail === 'enochalayande8@gmail.come' ||
+      cleanEmail === topAdmin.email?.toLowerCase().trim()
+    ) {
+      return { success: false, message: 'This user is already the Top Administrator.' };
+    }
 
+    // Find registered user in Firestore if they already registered
     let targetUserId = cleanEmail;
     let targetUserName = cleanEmail.split('@')[0];
 
-    if (!usersSnap.empty) {
-      const uDoc = usersSnap.docs[0];
-      targetUserId = uDoc.id;
-      const uData = uDoc.data();
-      targetUserName = uData.fullName || targetUserName;
+    try {
+      const usersSnap = await getDocs(
+        query(collection(db, 'users'), where('email', '==', cleanEmail))
+      );
 
-      // Update user document role
-      await updateDoc(uDoc.ref, { role: 'ADMIN' });
+      if (!usersSnap.empty) {
+        const uDoc = usersSnap.docs[0];
+        targetUserId = uDoc.id;
+        const uData = uDoc.data();
+        targetUserName = uData.fullName || targetUserName;
+
+        // Update user document role to ADMIN
+        await updateDoc(uDoc.ref, { role: 'ADMIN' });
+      }
+    } catch (uErr) {
+      console.warn('[Firestore] Note checking users on admin appointment:', uErr);
     }
 
     const newAdminRecord: AdminUserRecord = {
-      adminId: 'adm_' + targetUserId,
+      adminId: 'adm_' + targetUserId.replace(/[^a-zA-Z0-9_-]/g, '_'),
       userId: targetUserId,
       email: cleanEmail,
       name: targetUserName,
@@ -755,13 +852,31 @@ export async function addAdminInFirestore(
 }
 
 export async function setAdminStatusInFirestore(
-  adminIdOrUserId: string,
+  adminRecord: AdminUserRecord | string,
   status: 'ACTIVE' | 'INACTIVE'
 ): Promise<{ success: boolean; message: string }> {
-  if (!db || !adminIdOrUserId) return { success: false, message: 'Invalid identifier' };
+  if (!db || !adminRecord) return { success: false, message: 'Invalid identifier' };
   try {
-    const adminRef = doc(db, 'admins', adminIdOrUserId);
-    await updateDoc(adminRef, { status });
+    const keysToUpdate: string[] = [];
+    if (typeof adminRecord === 'string') {
+      keysToUpdate.push(adminRecord);
+    } else {
+      if (adminRecord.userId) keysToUpdate.push(adminRecord.userId);
+      if (adminRecord.email) keysToUpdate.push(adminRecord.email.toLowerCase().trim());
+      if (adminRecord.adminId) keysToUpdate.push(adminRecord.adminId);
+    }
+
+    for (const k of keysToUpdate) {
+      if (!k) continue;
+      try {
+        const aRef = doc(db, 'admins', k);
+        const snap = await getDoc(aRef);
+        if (snap.exists()) {
+          await updateDoc(aRef, { status });
+        }
+      } catch {}
+    }
+
     return { success: true, message: `Admin status changed to ${status}.` };
   } catch (err: any) {
     console.error('[Firestore] setAdminStatus error:', err);
@@ -770,18 +885,58 @@ export async function setAdminStatusInFirestore(
 }
 
 export async function removeAdminFromFirestore(
-  adminIdOrUserId: string
+  adminRecord: AdminUserRecord | string
 ): Promise<{ success: boolean; message: string }> {
-  if (!db || !adminIdOrUserId) return { success: false, message: 'Invalid identifier' };
+  if (!db || !adminRecord) return { success: false, message: 'Invalid identifier' };
   try {
-    await deleteDoc(doc(db, 'admins', adminIdOrUserId));
+    const keysToDelete: string[] = [];
+    let userEmailToRevert = '';
+    let userIdToRevert = '';
+
+    if (typeof adminRecord === 'string') {
+      keysToDelete.push(adminRecord);
+      if (adminRecord.includes('@')) userEmailToRevert = adminRecord.toLowerCase().trim();
+      else userIdToRevert = adminRecord;
+    } else {
+      if (adminRecord.userId) {
+        keysToDelete.push(adminRecord.userId);
+        userIdToRevert = adminRecord.userId;
+      }
+      if (adminRecord.email) {
+        const em = adminRecord.email.toLowerCase().trim();
+        keysToDelete.push(em);
+        userEmailToRevert = em;
+      }
+      if (adminRecord.adminId) keysToDelete.push(adminRecord.adminId);
+    }
+
+    for (const k of keysToDelete) {
+      if (!k) continue;
+      try {
+        await deleteDoc(doc(db, 'admins', k));
+      } catch {}
+    }
 
     // Also revert user role if user document exists
-    const userRef = doc(db, 'users', adminIdOrUserId);
-    const snap = await getDoc(userRef);
-    if (snap.exists()) {
-      await updateDoc(userRef, { role: 'REGISTERED_USER' });
-    }
+    try {
+      if (userIdToRevert && !userIdToRevert.includes('@')) {
+        const userRef = doc(db, 'users', userIdToRevert);
+        const snap = await getDoc(userRef);
+        if (snap.exists() && snap.data()?.role !== 'TOP_ADMIN') {
+          await updateDoc(userRef, { role: 'REGISTERED_USER' });
+        }
+      }
+      if (userEmailToRevert) {
+        const usersSnap = await getDocs(
+          query(collection(db, 'users'), where('email', '==', userEmailToRevert))
+        );
+        for (const uDoc of usersSnap.docs) {
+          if (uDoc.data()?.role !== 'TOP_ADMIN') {
+            await updateDoc(uDoc.ref, { role: 'REGISTERED_USER' });
+          }
+        }
+      }
+    } catch {}
 
     return { success: true, message: 'Admin privileges revoked.' };
   } catch (err: any) {

@@ -1799,27 +1799,27 @@ async function startServer() {
       const cleanEmail = String(email).trim().toLowerCase();
       const targetUser = db.users.find(u => u.email === cleanEmail);
 
-      if (!targetUser) {
-        return res.status(404).json({ error: `No registered account found with email: ${cleanEmail}. The user must first create an account.` });
-      }
-
-      if (targetUser.role === 'TOP_ADMIN') {
+      if (targetUser && targetUser.role === 'TOP_ADMIN') {
         return res.status(400).json({ error: 'This user is already the Top Administrator.' });
       }
 
-      // Assign ADMIN role
-      targetUser.role = 'ADMIN';
+      const adminName = targetUser?.fullName || cleanEmail.split('@')[0];
+      const adminUserId = targetUser?.id || 'usr_' + crypto.randomUUID();
 
-      const existingRecordIndex = db.admins.findIndex(a => a.userId === targetUser.id);
+      if (targetUser) {
+        targetUser.role = 'ADMIN';
+      }
+
+      const existingRecordIndex = db.admins.findIndex(a => a.email === cleanEmail || (targetUser && a.userId === targetUser.id));
       if (existingRecordIndex >= 0) {
         db.admins[existingRecordIndex].role = 'ADMIN';
         db.admins[existingRecordIndex].status = 'ACTIVE';
       } else {
         db.admins.push({
           adminId: 'adm_' + crypto.randomUUID(),
-          userId: targetUser.id,
-          email: targetUser.email,
-          name: targetUser.fullName,
+          userId: adminUserId,
+          email: cleanEmail,
+          name: adminName,
           role: 'ADMIN',
           status: 'ACTIVE',
           createdAt: new Date().toISOString(),
@@ -1832,14 +1832,14 @@ async function startServer() {
         topAdmin.id,
         topAdmin.email,
         'TOP_ADMIN_ADDED_ADMIN',
-        `Appointed user ${targetUser.email} (${targetUser.fullName}) as ADMIN.`,
-        targetUser.id,
+        `Appointed administrator ${cleanEmail} (${adminName}).`,
+        adminUserId,
         'USER'
       );
 
       saveDatabase(db);
       res.status(201).json({
-        message: `Successfully appointed ${targetUser.fullName} (${targetUser.email}) as Administrator.`,
+        message: `Successfully appointed ${adminName} (${cleanEmail}) as Administrator.`,
         admins: db.admins,
       });
     } catch (err: any) {
