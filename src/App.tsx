@@ -141,6 +141,16 @@ const MainContent: React.FC = () => {
     fetchUserData();
   }, [isAuthenticated, isAdmin]);
 
+  // Immediately redirect if administrative access is revoked or deactivated
+  useEffect(() => {
+    if (currentTab === 'admin-reviews' && !isAdmin) {
+      setCurrentTab('home');
+    }
+    if (currentTab === 'top-admin' && !isTopAdmin) {
+      setCurrentTab('home');
+    }
+  }, [currentTab, isAdmin, isTopAdmin]);
+
   const handleOpenAuth = (mode: 'login' | 'signup') => {
     setAuthMode(mode);
     setAuthModalOpen(true);

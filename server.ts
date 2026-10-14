@@ -458,7 +458,6 @@ async function startServer() {
 
           const isAppointedAdmin =
             isTopAdmin ||
-            decoded.role === 'ADMIN' ||
             db.admins.some(a => (a.userId === decoded.uid || a.email.toLowerCase() === email) && a.status === 'ACTIVE');
 
           let user = db.users.find(u => u.firebaseUid === decoded.uid || u.id === decoded.uid || (email && u.email === email));
@@ -489,6 +488,10 @@ async function startServer() {
               saveDatabase(db);
             } else if (isAppointedAdmin && user.role === 'REGISTERED_USER') {
               user.role = 'ADMIN';
+              user.accountStatus = 'ACTIVE';
+              saveDatabase(db);
+            } else if (!isTopAdmin && !isAppointedAdmin && user.role === 'ADMIN') {
+              user.role = 'REGISTERED_USER';
               saveDatabase(db);
             }
             return user;
@@ -518,7 +521,6 @@ async function startServer() {
 
           const isAppointedAdmin =
             isTopAdmin ||
-            decoded.role === 'ADMIN' ||
             db.admins.some(a => (a.userId === uid || a.email.toLowerCase() === email) && a.status === 'ACTIVE');
 
           let user = db.users.find(u => u.firebaseUid === uid || u.id === uid || (email && u.email.toLowerCase() === email));
@@ -549,6 +551,10 @@ async function startServer() {
               saveDatabase(db);
             } else if (isAppointedAdmin && user.role === 'REGISTERED_USER') {
               user.role = 'ADMIN';
+              user.accountStatus = 'ACTIVE';
+              saveDatabase(db);
+            } else if (!isTopAdmin && !isAppointedAdmin && user.role === 'ADMIN') {
+              user.role = 'REGISTERED_USER';
               saveDatabase(db);
             }
             return user;
@@ -578,6 +584,16 @@ async function startServer() {
     }
     if (user.role !== 'ADMIN' && user.role !== 'TOP_ADMIN') {
       return res.status(403).json({ error: 'Forbidden. Administrator authorization required.' });
+    }
+    // Strict deactivation check for appointed admins
+    if (user.role === 'ADMIN') {
+      const email = (user.email || '').toLowerCase().trim();
+      const adminRecord = db.admins.find(
+        a => a.userId === user.id || a.userId === user.firebaseUid || (a.email && a.email.toLowerCase() === email)
+      );
+      if ((adminRecord && adminRecord.status === 'INACTIVE') || user.accountStatus === 'INACTIVE') {
+        return res.status(403).json({ error: 'Forbidden. Your administrator privileges have been deactivated.' });
+      }
     }
     (req as any).user = user;
     next();
@@ -1853,7 +1869,10 @@ async function startServer() {
     const { id } = req.params;
     const { status } = req.body;
 
-    const adminRecord = db.admins.find(a => a.adminId === id || a.userId === id);
+    const cleanId = String(id).toLowerCase().trim();
+    const adminRecord = db.admins.find(
+      a => a.adminId === id || a.userId === id || (a.email && a.email.toLowerCase() === cleanId)
+    );
     if (!adminRecord) {
       return res.status(404).json({ error: 'Admin record not found.' });
     }
@@ -1862,10 +1881,17 @@ async function startServer() {
       return res.status(403).json({ error: 'The Top Administrator cannot be deactivated.' });
     }
 
-    adminRecord.status = status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE';
-    const targetUser = db.users.find(u => u.id === adminRecord.userId);
-    if (targetUser) {
-      targetUser.accountStatus = adminRecord.status;
+    const newStatus = status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE';
+    adminRecord.status = newStatus;
+
+    const targetUser = db.users.find(
+      u => u.id === adminRecord.userId ||
+           u.firebaseUid === adminRecord.userId ||
+           (u.email && u.email.toLowerCase() === adminRecord.email.toLowerCase())
+    );
+    if (targetUser && targetUser.role !== 'TOP_ADMIN') {
+      targetUser.accountStatus = newStatus;
+      targetUser.role = newStatus === 'ACTIVE' ? 'ADMIN' : 'REGISTERED_USER';
     }
 
     logAudit(

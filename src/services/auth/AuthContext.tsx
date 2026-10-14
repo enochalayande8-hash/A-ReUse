@@ -22,6 +22,8 @@ import {
   checkIfUserIsAdminInFirestore,
   ensureAdminRecordInFirestore,
 } from '../firebase/firestoreService';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '../firebase/firebaseConfig';
 import { isAndroidAppOrWebView } from '../firebase/safeStorage';
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -80,12 +82,20 @@ async function resolveUserSession(
   if (existingUser) {
     if (isTopAdmin) {
       existingUser.role = 'TOP_ADMIN';
+      existingUser.adminStatus = 'ACTIVE';
       ensureAdminRecordInFirestore(fbUser.uid, cleanEmail, customFullName || existingUser.fullName, 'TOP_ADMIN').catch(() => {});
     } else {
       const isAppointed = await checkIfUserIsAdminInFirestore(fbUser.uid, cleanEmail);
       if (isAppointed) {
         existingUser.role = 'ADMIN';
+        existingUser.adminStatus = 'ACTIVE';
         ensureAdminRecordInFirestore(fbUser.uid, cleanEmail, customFullName || existingUser.fullName, 'ADMIN').catch(() => {});
+      } else {
+        // If they were previously an admin but deactivated or removed by Top Admin, downgrade role
+        if (existingUser.role === 'ADMIN') {
+          existingUser.role = 'REGISTERED_USER';
+          existingUser.adminStatus = 'INACTIVE';
+        }
       }
     }
     if (customFullName && !existingUser.fullName) {
@@ -97,9 +107,13 @@ async function resolveUserSession(
 
   // 3. New user profile initialization in Firestore
   let initialRole: 'TOP_ADMIN' | 'ADMIN' | 'REGISTERED_USER' = isTopAdmin ? 'TOP_ADMIN' : 'REGISTERED_USER';
+  let initialAdminStatus: 'ACTIVE' | 'INACTIVE' | undefined = undefined;
   if (!isTopAdmin) {
     const isAppointed = await checkIfUserIsAdminInFirestore(fbUser.uid, cleanEmail);
-    if (isAppointed) initialRole = 'ADMIN';
+    if (isAppointed) {
+      initialRole = 'ADMIN';
+      initialAdminStatus = 'ACTIVE';
+    }
   }
 
   if (initialRole === 'TOP_ADMIN' || initialRole === 'ADMIN') {
@@ -113,6 +127,7 @@ async function resolveUserSession(
     fullName: customFullName || fbUser.displayName || cleanEmail.split('@')[0] || 'Movement Member',
     role: initialRole,
     accountStatus: 'ACTIVE',
+    ...(initialAdminStatus ? { adminStatus: initialAdminStatus } : {}),
     createdAt: new Date().toISOString(),
     verifiedActionsCount: 0,
     verifiedPoints: 0,
@@ -226,6 +241,88 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       unsubscribe();
     };
   }, []);
+
+  // Real-time synchronization of administrative status and capabilities
+  useEffect(() => {
+    if (!user || !db) return;
+    const isOwner = isDesignatedTopAdmin(user.email, user.id || (user as any).firebaseUid);
+    if (isOwner) return;
+
+    const unsubs: (() => void)[] = [];
+    const userId = user.id || (user as any).firebaseUid;
+    const cleanEmail = (user.email || '').toLowerCase().trim();
+
+    // 1. Live subscription to user profile in Firestore
+    if (userId) {
+      try {
+        const uRef = doc(db, 'users', userId);
+        const unsubUser = onSnapshot(uRef, (snap) => {
+          if (snap.exists()) {
+            const data = snap.data();
+            setUser((prev) => {
+              if (!prev) return null;
+              if (
+                prev.role !== data.role ||
+                prev.adminStatus !== data.adminStatus ||
+                prev.accountStatus !== data.accountStatus
+              ) {
+                return {
+                  ...prev,
+                  role: data.role || prev.role,
+                  adminStatus: data.adminStatus,
+                  accountStatus: data.accountStatus || prev.accountStatus,
+                };
+              }
+              return prev;
+            });
+          }
+        });
+        unsubs.push(unsubUser);
+      } catch (err) {
+        console.warn('[AuthContext] Note subscribing to user doc:', err);
+      }
+    }
+
+    // 2. Live subscription to admin record document by user ID
+    if (userId) {
+      try {
+        const admRef = doc(db, 'admins', userId);
+        const unsubAdm = onSnapshot(admRef, (snap) => {
+          if (snap.exists()) {
+            const adm = snap.data();
+            if (adm.status === 'INACTIVE') {
+              setUser((prev) => (prev ? { ...prev, role: 'REGISTERED_USER', adminStatus: 'INACTIVE' } : null));
+            } else if (adm.status === 'ACTIVE' && adm.role === 'ADMIN') {
+              setUser((prev) => (prev ? { ...prev, role: 'ADMIN', adminStatus: 'ACTIVE' } : null));
+            }
+          }
+        });
+        unsubs.push(unsubAdm);
+      } catch {}
+    }
+
+    // 3. Live subscription to admin record document by email
+    if (cleanEmail && cleanEmail !== userId) {
+      try {
+        const admEmailRef = doc(db, 'admins', cleanEmail);
+        const unsubAdmEmail = onSnapshot(admEmailRef, (snap) => {
+          if (snap.exists()) {
+            const adm = snap.data();
+            if (adm.status === 'INACTIVE') {
+              setUser((prev) => (prev ? { ...prev, role: 'REGISTERED_USER', adminStatus: 'INACTIVE' } : null));
+            } else if (adm.status === 'ACTIVE' && adm.role === 'ADMIN') {
+              setUser((prev) => (prev ? { ...prev, role: 'ADMIN', adminStatus: 'ACTIVE' } : null));
+            }
+          }
+        });
+        unsubs.push(unsubAdmEmail);
+      } catch {}
+    }
+
+    return () => {
+      unsubs.forEach((fn) => fn());
+    };
+  }, [user?.id, user?.email]);
 
   const login = async (email: string, password: string) => {
     setIsLoading(true);
@@ -603,7 +700,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const isTopAdmin =
     user?.role === 'TOP_ADMIN' ||
     isDesignatedTopAdmin(user?.email, user?.id || (user as any)?.firebaseUid);
-  const isAdmin = user?.role === 'ADMIN' || isTopAdmin;
+  const isAdmin =
+    isTopAdmin ||
+    (user?.role === 'ADMIN' &&
+      (user as any)?.adminStatus !== 'INACTIVE' &&
+      user?.accountStatus !== 'INACTIVE');
   const isAuthenticated = !!user;
 
   return (

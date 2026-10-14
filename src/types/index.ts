@@ -8,6 +8,7 @@ export interface User {
   email: string;
   role: UserRole;
   accountStatus: AccountStatus;
+  adminStatus?: 'ACTIVE' | 'INACTIVE';
   createdAt: string;
   profileImageUrl?: string;
   firebaseUid?: string;

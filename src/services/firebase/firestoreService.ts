@@ -424,7 +424,31 @@ export async function ensureAdminRecordInFirestore(
   };
 
   try {
-    await setDoc(doc(db, 'admins', userId), adminData, { merge: true });
+    const adminDocRef = doc(db, 'admins', userId);
+    const existingSnap = await getDoc(adminDocRef);
+    let resolvedStatus: 'ACTIVE' | 'INACTIVE' = 'ACTIVE';
+
+    if (existingSnap.exists()) {
+      const existing = existingSnap.data() as AdminUserRecord;
+      // Never re-activate an administrator that was deactivated by the Top Admin
+      if (role !== 'TOP_ADMIN' && existing.status === 'INACTIVE') {
+        resolvedStatus = 'INACTIVE';
+      }
+    }
+
+    const adminData: Partial<AdminUserRecord> = {
+      adminId: 'adm_' + userId,
+      userId,
+      email: cleanEmail,
+      name: name || cleanEmail.split('@')[0],
+      role,
+      status: resolvedStatus,
+      createdAt: existingSnap.exists() ? (existingSnap.data().createdAt || new Date().toISOString()) : new Date().toISOString(),
+      createdBy: existingSnap.exists() ? (existingSnap.data().createdBy || 'SYSTEM_BOOTSTRAP') : 'SYSTEM_BOOTSTRAP',
+      creatorEmail: existingSnap.exists() ? (existingSnap.data().creatorEmail || cleanEmail) : cleanEmail,
+    };
+
+    await setDoc(adminDocRef, adminData, { merge: true });
     if (cleanEmail && cleanEmail !== userId) {
       await setDoc(doc(db, 'admins', cleanEmail), adminData, { merge: true });
     }
@@ -858,23 +882,86 @@ export async function setAdminStatusInFirestore(
   if (!db || !adminRecord) return { success: false, message: 'Invalid identifier' };
   try {
     const keysToUpdate: string[] = [];
+    let userIdToUpdate = '';
+    let emailToUpdate = '';
+
     if (typeof adminRecord === 'string') {
       keysToUpdate.push(adminRecord);
+      if (adminRecord.includes('@')) {
+        emailToUpdate = adminRecord.toLowerCase().trim();
+      } else {
+        userIdToUpdate = adminRecord;
+      }
     } else {
-      if (adminRecord.userId) keysToUpdate.push(adminRecord.userId);
-      if (adminRecord.email) keysToUpdate.push(adminRecord.email.toLowerCase().trim());
+      if (adminRecord.userId) {
+        keysToUpdate.push(adminRecord.userId);
+        userIdToUpdate = adminRecord.userId;
+      }
+      if (adminRecord.email) {
+        const cleanEm = adminRecord.email.toLowerCase().trim();
+        keysToUpdate.push(cleanEm);
+        emailToUpdate = cleanEm;
+      }
       if (adminRecord.adminId) keysToUpdate.push(adminRecord.adminId);
     }
 
+    // 1. Update status on all admin record documents in 'admins' collection
     for (const k of keysToUpdate) {
       if (!k) continue;
       try {
         const aRef = doc(db, 'admins', k);
         const snap = await getDoc(aRef);
         if (snap.exists()) {
-          await updateDoc(aRef, { status });
+          await updateDoc(aRef, {
+            status,
+            updatedAt: new Date().toISOString(),
+          });
         }
-      } catch {}
+      } catch (err) {
+        console.warn(`[Firestore] Note updating admin key ${k}:`, err);
+      }
+    }
+
+    // 2. Synchronize user document in 'users' collection so capabilities and dashboard reflect immediately
+    const targetRole = status === 'ACTIVE' ? 'ADMIN' : 'REGISTERED_USER';
+    const targetAdminStatus = status;
+
+    // Update by userId if available
+    if (userIdToUpdate && !userIdToUpdate.includes('@')) {
+      try {
+        const userRef = doc(db, 'users', userIdToUpdate);
+        const userSnap = await getDoc(userRef);
+        if (userSnap.exists()) {
+          const uData = userSnap.data();
+          if (uData.role !== 'TOP_ADMIN') {
+            await updateDoc(userRef, {
+              role: targetRole,
+              adminStatus: targetAdminStatus,
+            });
+          }
+        }
+      } catch (uErr) {
+        console.warn('[Firestore] Note updating user doc by userId:', uErr);
+      }
+    }
+
+    // Update by email query to catch all linked accounts
+    if (emailToUpdate) {
+      try {
+        const usersSnap = await getDocs(
+          query(collection(db, 'users'), where('email', '==', emailToUpdate))
+        );
+        for (const uDoc of usersSnap.docs) {
+          if (uDoc.data().role !== 'TOP_ADMIN') {
+            await updateDoc(uDoc.ref, {
+              role: targetRole,
+              adminStatus: targetAdminStatus,
+            });
+          }
+        }
+      } catch (emErr) {
+        console.warn('[Firestore] Note updating user doc by email:', emErr);
+      }
     }
 
     return { success: true, message: `Admin status changed to ${status}.` };

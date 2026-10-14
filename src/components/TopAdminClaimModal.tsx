@@ -20,6 +20,7 @@ export const TopAdminClaimModal: React.FC<TopAdminClaimModalProps> = ({
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   const isCreatorAccount = isDesignatedTopAdmin(user?.email, user?.id);
+  const isAuthorizedViewer = isTopAdmin || isCreatorAccount;
 
   const handleClaim = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -164,24 +165,37 @@ export const TopAdminClaimModal: React.FC<TopAdminClaimModalProps> = ({
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-bold text-[#2C1810] uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
-                <KeyRound className="w-3.5 h-3.5 text-[#D4AF37]" />
-                Bootstrap Code {isCreatorAccount && <span className="text-[10px] font-normal text-[#8D6E63]">(Optional for Creator)</span>}
-              </label>
-              <input
-                type="password"
-                value={bootstrapCode}
-                onChange={(e) => setBootstrapCode(e.target.value)}
-                placeholder={isCreatorAccount ? "Optional: Enter code or click Activate below" : "Enter Bootstrap Code..."}
-                disabled={statusState === 'initializing'}
-                autoComplete="off"
-                className="w-full px-4 py-3 rounded-xl bg-white border border-[#2C1810]/20 text-sm text-[#2C1810] placeholder-[#A1887F] focus:outline-hidden focus:ring-2 focus:ring-[#D4AF37] focus:border-transparent font-mono"
-              />
-              <p className="text-[11px] text-[#8D6E63] mt-1.5">
-                The Bootstrap Code is submitted securely over HTTPS to the backend authority. It is never stored in browser memory, Firestore, or client assets.
-              </p>
-            </div>
+            {/* Bootstrap Code Input Section - strictly invisible to registered users and admins except Top Admins / designated creator */}
+            {isAuthorizedViewer ? (
+              <div>
+                <label className="block text-xs font-bold text-[#2C1810] uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                  <KeyRound className="w-3.5 h-3.5 text-[#D4AF37]" />
+                  Bootstrap Code {isCreatorAccount && <span className="text-[10px] font-normal text-[#8D6E63]">(Optional for Creator)</span>}
+                </label>
+                <input
+                  type="password"
+                  value={bootstrapCode}
+                  onChange={(e) => setBootstrapCode(e.target.value)}
+                  placeholder={isCreatorAccount ? "Optional: Enter code or click Activate below" : "Enter Bootstrap Code..."}
+                  disabled={statusState === 'initializing'}
+                  autoComplete="off"
+                  className="w-full px-4 py-3 rounded-xl bg-white border border-[#2C1810]/20 text-sm text-[#2C1810] placeholder-[#A1887F] focus:outline-hidden focus:ring-2 focus:ring-[#D4AF37] focus:border-transparent font-mono"
+                />
+                <p className="text-[11px] text-[#8D6E63] mt-1.5">
+                  The Bootstrap Code is submitted securely over HTTPS to the backend authority. It is never stored in browser memory, Firestore, or client assets.
+                </p>
+              </div>
+            ) : (
+              <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2.5">
+                <Lock className="w-4 h-4 text-amber-700 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold text-xs">Authorization Restricted</p>
+                  <p className="text-amber-800 mt-0.5 text-[11px] leading-relaxed">
+                    The Bootstrap Code input is restricted to designated system Top Administrators. Appointed administrators and registered community members cannot view or submit bootstrap codes.
+                  </p>
+                </div>
+              </div>
+            )}
 
             <div className="pt-2 flex items-center justify-end gap-3">
               <button
@@ -189,25 +203,27 @@ export const TopAdminClaimModal: React.FC<TopAdminClaimModalProps> = ({
                 onClick={handleModalClose}
                 className="px-4 py-2.5 rounded-xl text-sm font-medium text-[#5D4037] hover:bg-[#2C1810]/5 transition-colors cursor-pointer"
               >
-                Cancel
+                {isAuthorizedViewer ? 'Cancel' : 'Close'}
               </button>
-              <button
-                type="submit"
-                disabled={statusState === 'initializing' || (!isCreatorAccount && !bootstrapCode.trim())}
-                className="px-5 py-2.5 rounded-xl bg-[#2C1810] text-[#D4AF37] text-sm font-bold hover:bg-[#3E2723] disabled:opacity-50 transition-all border border-[#D4AF37]/50 shadow-sm flex items-center gap-2 cursor-pointer"
-              >
-                {statusState === 'initializing' ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-[#D4AF37] border-t-transparent rounded-full animate-spin" />
-                    <span>Verifying...</span>
-                  </>
-                ) : (
-                  <>
-                    <ShieldCheck className="w-4 h-4 text-[#D4AF37]" />
-                    <span>{isCreatorAccount ? 'Activate Top Admin Authority' : 'Submit Bootstrap Code'}</span>
-                  </>
-                )}
-              </button>
+              {isAuthorizedViewer && (
+                <button
+                  type="submit"
+                  disabled={statusState === 'initializing' || (!isCreatorAccount && !bootstrapCode.trim())}
+                  className="px-5 py-2.5 rounded-xl bg-[#2C1810] text-[#D4AF37] text-sm font-bold hover:bg-[#3E2723] disabled:opacity-50 transition-all border border-[#D4AF37]/50 shadow-sm flex items-center gap-2 cursor-pointer"
+                >
+                  {statusState === 'initializing' ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-[#D4AF37] border-t-transparent rounded-full animate-spin" />
+                      <span>Verifying...</span>
+                    </>
+                  ) : (
+                    <>
+                      <ShieldCheck className="w-4 h-4 text-[#D4AF37]" />
+                      <span>{isCreatorAccount ? 'Activate Top Admin Authority' : 'Submit Bootstrap Code'}</span>
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           </form>
         )}

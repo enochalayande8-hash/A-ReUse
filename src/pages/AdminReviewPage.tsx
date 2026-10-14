@@ -107,6 +107,10 @@ export const AdminReviewPage: React.FC<AdminReviewPageProps> = ({ onReviewComple
   const handleProcessReview = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedSubmission) return;
+    if (!isAdmin) {
+      setFeedback({ type: 'error', text: 'Administrative access restricted. Your account does not have active administrator permissions.' });
+      return;
+    }
 
     if (reviewStatus === 'REJECTED' && !reviewNote.trim()) {
       setFeedback({ type: 'error', text: 'Please provide a review note explaining the rejection reason.' });

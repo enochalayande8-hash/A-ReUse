@@ -701,18 +701,18 @@ export const TopAdminPanel: React.FC<TopAdminPanelProps> = ({
   ];
 
   return (
-    <div className="space-y-8 animate-fadeIn max-w-7xl mx-auto">
-      {/* Top Banner */}
-      <div className="rounded-3xl bg-gradient-to-r from-[#2C1810] to-[#1F140E] p-6 md:p-8 text-[#FDFBF7] border border-[#D4AF37] shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="space-y-4 sm:space-y-5 animate-fadeIn max-w-7xl mx-auto">
+      {/* Top Banner - Compact */}
+      <div className="rounded-2xl bg-gradient-to-r from-[#2C1810] to-[#1F140E] p-4 sm:p-5 md:p-6 text-[#FDFBF7] border border-[#D4AF37] shadow-md flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
-          <div className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-[#D4AF37]/20 text-[#D4AF37] text-xs font-bold uppercase tracking-wider mb-2 border border-[#D4AF37]/40">
-            <Lock className="w-3.5 h-3.5" />
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#D4AF37]/20 text-[#D4AF37] text-[11px] font-bold uppercase tracking-wider mb-1.5 border border-[#D4AF37]/40">
+            <Lock className="w-3 h-3" />
             <span>Top Admin Control Panel • Owner Authorization</span>
           </div>
-          <h1 className="text-2xl md:text-3xl font-black tracking-tight text-white font-sans">
+          <h1 className="text-xl md:text-2xl font-black tracking-tight text-white font-sans">
             Awareness Global Movement Governance
           </h1>
-          <p className="text-xs text-[#D7CCC8] mt-1">
+          <p className="text-[11px] text-[#D7CCC8] mt-0.5">
             Authenticated as: <strong className="text-white">{user?.email}</strong> (Role: TOP_ADMIN)
           </p>
         </div>
@@ -720,7 +720,7 @@ export const TopAdminPanel: React.FC<TopAdminPanelProps> = ({
         <button
           onClick={loadAllAdminData}
           disabled={isLoading}
-          className="self-start md:self-auto px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-bold text-[#FDFBF7] border border-white/20 flex items-center gap-2 transition-all cursor-pointer"
+          className="self-start md:self-auto px-3.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-bold text-[#FDFBF7] border border-white/20 flex items-center gap-2 transition-all cursor-pointer"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
           <span>Refresh Records</span>
@@ -1518,63 +1518,86 @@ export const TopAdminPanel: React.FC<TopAdminPanelProps> = ({
             </form>
           </div>
 
-          <div className="rounded-2xl bg-white border border-[#2C1810]/10 overflow-hidden">
-            <table className="w-full text-left text-xs">
+          <div className="rounded-2xl bg-white border border-[#2C1810]/10 overflow-x-auto shadow-xs">
+            <table className="w-full text-left text-xs min-w-[620px]">
               <thead className="bg-[#F7F4EE] border-b border-[#2C1810]/10 text-[#5D4037] uppercase font-bold text-[10px]">
                 <tr>
-                  <th className="px-6 py-3">Administrator</th>
-                  <th className="px-6 py-3">Role</th>
-                  <th className="px-6 py-3">Status</th>
-                  <th className="px-6 py-3">Appointed Date</th>
-                  <th className="px-6 py-3 text-right">Actions</th>
+                  <th className="px-4 py-2.5">Administrator</th>
+                  <th className="px-4 py-2.5">Role</th>
+                  <th className="px-4 py-2.5">Status</th>
+                  <th className="px-4 py-2.5">Appointed Date</th>
+                  <th className="px-4 py-2.5 text-right">Administrative Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#2C1810]/5">
                 {admins.map((admin) => {
                   const isSelf = admin.userId === user?.id || admin.role === 'TOP_ADMIN';
                   return (
-                    <tr key={admin.adminId} className="hover:bg-[#FDFBF7]">
-                      <td className="px-6 py-3 font-semibold text-[#2C1810]">
-                        {admin.name} <span className="text-[#8D6E63] font-normal">({admin.email})</span>
+                    <tr key={admin.adminId} className="hover:bg-[#FDFBF7] transition-colors">
+                      <td className="px-4 py-3 font-semibold text-[#2C1810]">
+                        <div className="font-bold text-xs text-[#2C1810]">{admin.name}</div>
+                        <div className="text-[#8D6E63] text-[11px] font-normal">{admin.email}</div>
                       </td>
-                      <td className="px-6 py-3">
+                      <td className="px-4 py-3">
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-[#2C1810] text-[#D4AF37]">
                           {admin.role}
                         </span>
                       </td>
-                      <td className="px-6 py-3">
+                      <td className="px-4 py-3">
                         <span
-                          className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                          className={`text-[10px] font-extrabold px-2.5 py-1 rounded-full inline-flex items-center gap-1 border ${
                             admin.status === 'ACTIVE'
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : 'bg-rose-100 text-rose-800'
+                              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                              : 'bg-rose-50 text-rose-800 border-rose-200'
                           }`}
                         >
+                          <span className={`w-1.5 h-1.5 rounded-full ${admin.status === 'ACTIVE' ? 'bg-emerald-500' : 'bg-rose-500'}`} />
                           {admin.status}
                         </span>
                       </td>
-                      <td className="px-6 py-3 text-[#795548]">
+                      <td className="px-4 py-3 text-[#795548] text-xs">
                         {new Date(admin.createdAt).toLocaleDateString()}
                       </td>
-                      <td className="px-6 py-3 text-right">
+                      <td className="px-4 py-3 text-right">
                         {!isSelf ? (
                           <div className="flex items-center justify-end gap-2">
+                            {/* Prominent Deactivate / Activate Button */}
                             <button
+                              type="button"
                               onClick={() => handleToggleAdminStatus(admin)}
-                              className="text-xs font-semibold text-[#795548] hover:text-[#2C1810] underline"
+                              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer border ${
+                                admin.status === 'ACTIVE'
+                                  ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 border-rose-300 active:scale-95'
+                                  : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-300 active:scale-95'
+                              }`}
+                              title={admin.status === 'ACTIVE' ? 'Deactivate this administrator' : 'Activate this administrator'}
                             >
-                              {admin.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
+                              {admin.status === 'ACTIVE' ? (
+                                <>
+                                  <XCircle className="w-3.5 h-3.5 text-rose-600" />
+                                  <span>Deactivate</span>
+                                </>
+                              ) : (
+                                <>
+                                  <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                                  <span>Activate</span>
+                                </>
+                              )}
                             </button>
                             <button
+                              type="button"
                               onClick={() => handleRemoveAdmin(admin)}
-                              className="p-1 rounded text-red-600 hover:bg-red-50"
-                              title="Revoke Admin Access"
+                              className="px-2.5 py-1.5 rounded-xl border border-red-200 text-red-600 hover:bg-red-50 text-xs font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+                              title="Revoke Administrator Access"
                             >
-                              <UserX className="w-4 h-4" />
+                              <UserX className="w-3.5 h-3.5" />
+                              <span className="hidden sm:inline">Revoke</span>
                             </button>
                           </div>
                         ) : (
-                          <span className="text-[10px] text-[#8D6E63] italic">Owner Authority</span>
+                          <span className="text-[11px] text-[#8D6E63] font-semibold italic px-2 py-1 bg-amber-50 rounded-lg border border-amber-200">
+                            Owner Authority
+                          </span>
                         )}
                       </td>
                     </tr>

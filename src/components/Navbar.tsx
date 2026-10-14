@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { BrandLogo } from './BrandLogo';
-import { useAuth } from '../services/auth/AuthContext';
+import { useAuth, isDesignatedTopAdmin } from '../services/auth/AuthContext';
 import {
   Home,
   Award,
@@ -39,6 +39,9 @@ export const Navbar: React.FC<NavbarProps> = ({
 }) => {
   const { user, isAuthenticated, isTopAdmin, isAdmin, logout } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // The bootstrap code and Owner Setup section is strictly invisible to registered users and admins (only Top Admin / designated creator)
+  const canViewOwnerSetup = isTopAdmin || isDesignatedTopAdmin(user?.email, user?.id || (user as any)?.firebaseUid);
 
   const desktopNavItems = [
     { id: 'home', label: 'Home', icon: Home },
@@ -141,7 +144,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* Right Action / Auth Controls */}
             <div className="hidden md:flex items-center gap-3">
-              {!isTopAdmin && (
+              {canViewOwnerSetup && !isTopAdmin && (
                 <button
                   onClick={onOpenOwnerSetup}
                   title="Owner Authorization"
@@ -293,16 +296,18 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* Auth & Owner Mobile Actions */}
             <div className="pt-2 flex flex-col gap-2">
-              <button
-                onClick={() => {
-                  setMobileMenuOpen(false);
-                  onOpenOwnerSetup();
-                }}
-                className="w-full py-2.5 rounded-2xl border border-[#eadfce] bg-white text-xs font-bold text-[#5c463b] flex items-center justify-center gap-2"
-              >
-                <KeyRound className="w-3.5 h-3.5 text-[#e2a72e]" />
-                <span>Owner Setup / Claim Top Admin</span>
-              </button>
+              {canViewOwnerSetup && (
+                <button
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    onOpenOwnerSetup();
+                  }}
+                  className="w-full py-2.5 rounded-2xl border border-[#eadfce] bg-white text-xs font-bold text-[#5c463b] flex items-center justify-center gap-2"
+                >
+                  <KeyRound className="w-3.5 h-3.5 text-[#e2a72e]" />
+                  <span>Owner Setup / Claim Top Admin</span>
+                </button>
+              )}
 
               {isAuthenticated && user ? (
                 <div className="flex items-center gap-2 pt-1">
