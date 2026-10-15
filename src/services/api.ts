@@ -119,7 +119,7 @@ export const api = {
   getMe: () =>
     request<{ user: User }>('/api/auth/me'),
 
-  updateProfile: (payload: { fullName?: string; profileImageUrl?: string }) =>
+  updateProfile: (payload: { fullName?: string; profileImageUrl?: string; avatarUrl?: string; bio?: string }) =>
     request<{ user: User; message: string }>('/api/auth/profile', {
       method: 'PUT',
       body: JSON.stringify(payload),
@@ -301,9 +301,17 @@ export const api = {
       body: JSON.stringify({ emoji }),
     }),
 
+  getUserProfile: (id: string) =>
+    request<{ user: Partial<User> }>(`/api/users/profile/${id}`),
+
   pinCommunityPost: (postId: string, isPinned: boolean) =>
     request<{ post: CommunityPost; message: string }>(`/api/community/posts/${postId}/pin`, {
       method: 'POST',
       body: JSON.stringify({ isPinned }),
+    }),
+
+  deleteCommunityPost: (postId: string) =>
+    request<{ success: boolean; message: string }>(`/api/community/posts/${postId}`, {
+      method: 'DELETE',
     }),
 };

@@ -237,6 +237,8 @@ interface DbSchema {
     accountStatus: 'ACTIVE' | 'INACTIVE' | 'SUSPENDED';
     createdAt: string;
     profileImageUrl?: string;
+    avatarUrl?: string;
+    bio?: string;
     firebaseUid?: string;
     verifiedActionsCount: number;
     verifiedPoints: number;
@@ -326,6 +328,7 @@ interface DbSchema {
     userId: string;
     userName: string;
     userRole?: string;
+    userProfileImageUrl?: string;
     title: string;
     content: string;
     category: 'CAMPAIGN' | 'DISCUSSION' | 'ACHIEVEMENT' | 'INITIATIVE';
@@ -851,13 +854,19 @@ async function startServer() {
   // Update Profile
   app.put('/api/auth/profile', requireAuth, (req, res) => {
     const user = (req as any).user as DbSchema['users'][0];
-    const { fullName, profileImageUrl } = req.body;
+    const { fullName, profileImageUrl, avatarUrl, bio } = req.body;
 
     if (fullName && typeof fullName === 'string' && fullName.trim()) {
       user.fullName = fullName.trim();
     }
     if (profileImageUrl !== undefined) {
       user.profileImageUrl = profileImageUrl;
+    }
+    if (avatarUrl !== undefined) {
+      user.avatarUrl = avatarUrl;
+    }
+    if (bio !== undefined) {
+      user.bio = typeof bio === 'string' ? bio.slice(0, 500).trim() : '';
     }
 
     saveDatabase(db);
@@ -2060,9 +2069,38 @@ async function startServer() {
         verifiedPoints: u.verifiedPoints,
         verifiedActionsCount: u.verifiedActionsCount,
         verifiedBagsAvoided: u.verifiedBagsAvoided,
+        profileImageUrl: u.profileImageUrl || u.avatarUrl,
+        bio: u.bio,
       }));
 
     res.json({ leaderboard: verifiedUsers });
+  });
+
+  // Public user profile (read-only stats & badges for viewing fellow members)
+  app.get('/api/users/profile/:id', (req, res) => {
+    const { id } = req.params;
+    const cleanId = String(id).trim();
+    const target = db.users.find(u => u.id === cleanId || u.firebaseUid === cleanId);
+    if (!target) {
+      return res.status(404).json({ error: 'User profile not found.' });
+    }
+    // Strict privacy boundary: do not return email, passwordHash, salt, or private tokens
+    res.json({
+      user: {
+        id: target.id,
+        fullName: target.fullName,
+        role: target.role,
+        profileImageUrl: target.profileImageUrl || target.avatarUrl,
+        bio: target.bio || '',
+        createdAt: target.createdAt,
+        verifiedPoints: target.verifiedPoints || 0,
+        verifiedActionsCount: target.verifiedActionsCount || 0,
+        verifiedReusableBagUses: target.verifiedReusableBagUses || 0,
+        verifiedBagsAvoided: target.verifiedBagsAvoided || 0,
+        verifiedCo2eAvoidedGramsMin: target.verifiedCo2eAvoidedGramsMin || 0,
+        verifiedCo2eAvoidedGramsMax: target.verifiedCo2eAvoidedGramsMax || 0,
+      },
+    });
   });
 
   // Community posts (Public & Authenticated)
@@ -2088,6 +2126,7 @@ async function startServer() {
       userId: user.id,
       userName: user.fullName,
       userRole: user.role,
+      userProfileImageUrl: user.profileImageUrl || user.avatarUrl,
       title: String(title).trim(),
       content: String(content).trim(),
       category: category || 'DISCUSSION',
@@ -2145,6 +2184,35 @@ async function startServer() {
 
     saveDatabase(db);
     res.json({ post, message: post.isPinned ? 'Post pinned to top.' : 'Post unpinned.' });
+  });
+
+  // Delete Community Message (Top Admin & Admin can delete ANY message; Author can delete their own)
+  app.delete('/api/community/posts/:id', requireAuth, (req, res) => {
+    const user = (req as any).user as DbSchema['users'][0];
+    const postIndex = db.communityPosts.findIndex(p => p.id === req.params.id);
+    if (postIndex === -1) {
+      return res.status(404).json({ error: 'Post not found.' });
+    }
+    const post = db.communityPosts[postIndex];
+    const isTopAdmin = user.role === 'TOP_ADMIN';
+    const isActiveAdmin = user.role === 'ADMIN' && user.accountStatus !== 'INACTIVE';
+    const isAuthor = post.userId === user.id;
+
+    if (!isTopAdmin && !isActiveAdmin && !isAuthor) {
+      return res.status(403).json({ error: 'Forbidden. Top Admins, Admins, and the author may delete this message.' });
+    }
+
+    const [deletedPost] = db.communityPosts.splice(postIndex, 1);
+    logAudit(
+      user.id,
+      user.email,
+      'COMMUNITY_POST_DELETED',
+      `Deleted message "${deletedPost.title}" originally posted by ${deletedPost.userName} (${deletedPost.userId}).`,
+      deletedPost.id,
+      'POST'
+    );
+    saveDatabase(db);
+    res.json({ success: true, message: 'Message removed from the community feed.' });
   });
 
   // Health check

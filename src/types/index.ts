@@ -11,6 +11,8 @@ export interface User {
   adminStatus?: 'ACTIVE' | 'INACTIVE';
   createdAt: string;
   profileImageUrl?: string;
+  avatarUrl?: string;
+  bio?: string;
   firebaseUid?: string;
   verifiedActionsCount: number;
   verifiedPoints: number;
@@ -185,6 +187,8 @@ export interface CommunityPost {
   userId: string;
   userName: string;
   userRole?: 'TOP_ADMIN' | 'ADMIN' | 'REGISTERED_USER';
+  userProfileImageUrl?: string;
+  userAvatarUrl?: string;
   title: string;
   content: string;
   category: 'CAMPAIGN' | 'DISCUSSION' | 'ACHIEVEMENT' | 'INITIATIVE';
@@ -204,6 +208,8 @@ export interface LeaderboardEntry {
   verifiedPoints: number;
   verifiedActionsCount: number;
   verifiedBagsAvoided: number;
+  profileImageUrl?: string;
+  bio?: string;
 }
 
 export interface SystemStats {

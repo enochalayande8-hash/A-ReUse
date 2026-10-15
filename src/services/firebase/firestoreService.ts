@@ -78,6 +78,8 @@ export async function saveUserToFirestore(user: User): Promise<void> {
       verifiedCo2eAvoidedGramsMin: user.verifiedCo2eAvoidedGramsMin || 0,
       verifiedCo2eAvoidedGramsMax: user.verifiedCo2eAvoidedGramsMax || 0,
       ...(user.profileImageUrl ? { profileImageUrl: user.profileImageUrl } : {}),
+      ...(user.avatarUrl ? { avatarUrl: user.avatarUrl } : {}),
+      ...(user.bio !== undefined ? { bio: user.bio } : {}),
       ...(user.firebaseUid ? { firebaseUid: user.firebaseUid } : {}),
     }, { merge: true });
   } catch (err) {
@@ -323,6 +325,18 @@ export async function togglePinInFirestore(
     return true;
   } catch (err) {
     console.warn('[Firestore] togglePinInFirestore error:', err);
+    return false;
+  }
+}
+
+export async function deleteCommunityPostFromFirestore(postId: string): Promise<boolean> {
+  if (!db || !postId) return false;
+  try {
+    const postRef = doc(db, 'communityPosts', postId);
+    await deleteDoc(postRef);
+    return true;
+  } catch (err) {
+    console.warn('[Firestore] deleteCommunityPostFromFirestore error:', err);
     return false;
   }
 }
