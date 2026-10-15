@@ -15,7 +15,10 @@
         "verifiedReusableBagUses": { "type": "number" },
         "verifiedBagsAvoided": { "type": "number" },
         "verifiedCo2eAvoidedGramsMin": { "type": "number" },
-        "verifiedCo2eAvoidedGramsMax": { "type": "number" }
+        "verifiedCo2eAvoidedGramsMax": { "type": "number" },
+        "profileImageUrl": { "type": "string", "maxLength": 5000000 },
+        "avatarUrl": { "type": "string", "maxLength": 5000000 },
+        "bio": { "type": "string", "maxLength": 1000 }
       },
       "required": ["fullName", "email", "role", "accountStatus", "createdAt"]
     },
@@ -115,6 +118,8 @@
         "userId": { "type": "string", "maxLength": 128 },
         "userName": { "type": "string", "maxLength": 100 },
         "userRole": { "type": "string" },
+        "userProfileImageUrl": { "type": "string", "maxLength": 5000000 },
+        "userAvatarUrl": { "type": "string", "maxLength": 5000000 },
         "title": { "type": "string", "maxLength": 300 },
         "content": { "type": "string", "maxLength": 10000 },
         "category": { "type": "string", "enum": ["CAMPAIGN", "DISCUSSION", "ACHIEVEMENT", "INITIATIVE"] },

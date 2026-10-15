@@ -1,34 +1,34 @@
 import React, { useState, useEffect } from 'react';
-import { CommunityPost } from '../types';
+import { CommunityPost, User } from '../types';
 import { useAuth } from '../services/auth/AuthContext';
 import { api } from '../services/api';
 import {
   addCommunityPostToFirestore,
   toggleReactionInFirestore,
   togglePinInFirestore,
+  deleteCommunityPostFromFirestore,
   compressImageToDataUrl,
 } from '../services/firebase/firestoreService';
 import { EmptyState } from '../components/EmptyState';
 import { ImageModal } from '../components/ImageModal';
+import { UserProfileModal } from '../components/UserProfileModal';
 import {
   MessageSquare,
   Send,
   PlusCircle,
   Clock,
-  User,
+  User as UserIcon,
   ShieldCheck,
   AlertCircle,
   CheckCircle2,
   Tag,
   Pin,
-  PinOff,
   Image as ImageIcon,
   X,
-  Smile,
-  AlertTriangle,
-  ExternalLink,
   Crown,
-  Share2,
+  Trash2,
+  Lock,
+  Sparkles,
 } from 'lucide-react';
 
 interface ConnectPageProps {
@@ -61,6 +61,9 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
 
   // Interaction State
   const [modalImagePost, setModalImagePost] = useState<CommunityPost | null>(null);
+  const [selectedProfileUser, setSelectedProfileUser] = useState<{ id: string; user?: Partial<User> } | null>(null);
+  const [deleteConfirmPost, setDeleteConfirmPost] = useState<CommunityPost | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Status State
   const [isLoading, setIsLoading] = useState(false);
@@ -126,6 +129,8 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
       let createdPost: CommunityPost | null = null;
       let successMessage = 'Post shared with the movement!';
 
+      const userAvatar = user?.profileImageUrl || user?.avatarUrl;
+
       // 1. Try backend endpoint
       try {
         const res = await api.createCommunityPost({
@@ -152,6 +157,7 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
           userId: user.id,
           userName: user.fullName || user.email.split('@')[0],
           userRole: user.role,
+          userProfileImageUrl: userAvatar,
           title: title.trim(),
           content: content.trim(),
           category,
@@ -259,6 +265,47 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
     }
   };
 
+  // Delete message: Top Admin can delete any message; Admin can delete any message EXCEPT Top Admin messages
+  const handleConfirmDelete = async () => {
+    if (!deleteConfirmPost) return;
+
+    // Strict rule check: Top Admin and admin can delete, but admin cannot delete Top Admin message
+    const isPostByTopAdmin = deleteConfirmPost.userRole === 'TOP_ADMIN';
+    if (!isTopAdmin && isAdmin && isPostByTopAdmin) {
+      setError('Administrative restriction: Admins cannot delete messages published by Top Admin.');
+      setDeleteConfirmPost(null);
+      return;
+    }
+
+    setIsDeleting(true);
+    setError(null);
+
+    const targetId = deleteConfirmPost.id;
+    try {
+      // 1. Optimistic removal from state
+      setLocalPosts((prev) => prev.filter((p) => p.id !== targetId));
+
+      // 2. Delete from Firestore
+      await deleteCommunityPostFromFirestore(targetId).catch((fsErr) => {
+        console.warn('[ConnectPage] Firestore delete note:', fsErr);
+      });
+
+      // 3. Delete from Backend API
+      await api.deleteCommunityPost(targetId).catch((apiErr) => {
+        console.warn('[ConnectPage] API delete note:', apiErr);
+      });
+
+      setSuccessMsg('Message removed from community feed.');
+      setDeleteConfirmPost(null);
+      onPostCreated();
+      setTimeout(() => setSuccessMsg(null), 3000);
+    } catch (err: any) {
+      setError(err.message || 'Failed to delete message.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   return (
     <div className="space-y-6 animate-fadeIn pb-8 max-w-4xl mx-auto">
       {/* Header */}
@@ -273,7 +320,7 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
               Connect & Share
             </h1>
             <p className="text-xs sm:text-sm text-[#78675e] mt-1 max-w-xl leading-relaxed">
-              Peer discussions, habit-building tips, practical reusable bag advice, and grassroots encouragement. Members and admins can react to messages and share experiences!
+              Peer discussions, habit-building tips, and grassroots encouragement. Tap any member&apos;s name or photo to view their verified impact badges and stats!
             </p>
           </div>
 
@@ -300,6 +347,21 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
         </div>
       </div>
 
+      {/* Global alert feedback */}
+      {successMsg && (
+        <div className="p-3 rounded-xl bg-[#dce8d8] border border-[#c4d9bf] text-xs text-[#365646] flex items-center gap-2 animate-fadeIn">
+          <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+          <span>{successMsg}</span>
+        </div>
+      )}
+
+      {error && (
+        <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2 animate-fadeIn">
+          <AlertCircle className="w-4 h-4 flex-shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
       {/* Post Creation Modal */}
       {showCreateModal && (
         <div className="app-card p-5 sm:p-6 border-2 border-[#e2a72e]/60 space-y-4 shadow-md animate-fadeIn">
@@ -318,20 +380,6 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
               Cancel
             </button>
           </div>
-
-          {error && (
-            <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 flex-shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
-
-          {successMsg && (
-            <div className="p-3 rounded-xl bg-[#dce8d8] border border-[#c4d9bf] text-xs text-[#365646] flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-              <span>{successMsg}</span>
-            </div>
-          )}
 
           <form onSubmit={handleCreatePost} className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -380,7 +428,7 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
               />
             </div>
 
-            {/* Photo Attachment Section with Mandatory Notice BEFORE Upload */}
+            {/* Photo Attachment Section */}
             <div className="space-y-3 pt-1">
               {!showPhotoSection && !imagePreview ? (
                 <button
@@ -392,79 +440,51 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
                   <span>Attach a Photo (Optional)</span>
                 </button>
               ) : (
-                <div className="p-4 sm:p-5 rounded-2xl bg-[#FFFDF8] border-2 border-[#eadfce] space-y-3.5 animate-fadeIn">
+                <div className="p-4 rounded-2xl bg-[#FFFDF8] border-2 border-[#eadfce] space-y-3 animate-fadeIn">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-[#40281d] flex items-center gap-1.5">
                       <ImageIcon className="w-4 h-4 text-[#e2a72e]" />
                       <span>Attach Photo to Discussion</span>
                     </span>
-                    {!imagePreview && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowPhotoSection(false);
+                        handleRemovePhoto();
+                      }}
+                      className="text-xs text-[#78675e] hover:text-[#40281d] cursor-pointer"
+                    >
+                      Remove
+                    </button>
+                  </div>
+
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handlePhotoSelect}
+                    className="block w-full text-xs text-[#78675e] file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-[#40281d] file:text-[#fffdf8] hover:file:bg-[#523325] file:cursor-pointer"
+                  />
+
+                  {isCompressing && (
+                    <p className="text-[11px] text-[#8b6508] animate-pulse">
+                      Optimizing photo for mobile speed...
+                    </p>
+                  )}
+
+                  {imagePreview && (
+                    <div className="relative inline-block mt-2">
+                      <img
+                        src={imagePreview}
+                        alt="Preview"
+                        className="w-32 h-32 object-cover rounded-xl border border-[#eadfce]"
+                      />
                       <button
                         type="button"
-                        onClick={() => setShowPhotoSection(false)}
-                        className="text-xs text-[#78675e] hover:text-[#40281d] cursor-pointer"
+                        onClick={handleRemovePhoto}
+                        className="absolute -top-2 -right-2 p-1 rounded-full bg-[#40281d] text-white hover:bg-red-700 transition-colors shadow-xs"
                       >
-                        Cancel Photo
+                        <X className="w-3.5 h-3.5" />
                       </button>
-                    )}
-                  </div>
-
-                  {/* MANDATORY NOTICE DISPLAYED BEFORE ADDING PHOTO */}
-                  <div className="p-3.5 rounded-xl bg-amber-50 border-2 border-amber-300 text-amber-900 text-xs flex items-start gap-2.5">
-                    <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-                    <div className="leading-relaxed">
-                      <strong className="block font-bold text-amber-950 uppercase tracking-wide text-[10px] mb-0.5">
-                        Notice Before Attaching Photo:
-                      </strong>
-                      <span className="font-semibold text-amber-900">
-                        Challenge points will not be awarded for uploading in the connect page.
-                      </span>
-                      <p className="text-[11px] text-amber-800/90 mt-1">
-                        Photos shared here are for tips, peer education, and community encouragement. To earn official points and challenge credits, submit photographic proof through the <strong>Proof</strong> section.
-                      </p>
-                    </div>
-                  </div>
-
-                  {!imagePreview ? (
-                    <div>
-                      <label className="flex flex-col items-center justify-center p-5 border-2 border-dashed border-[#eadfce] hover:border-[#e2a72e] hover:bg-white rounded-xl cursor-pointer bg-[#FFFDF5] transition-all">
-                        <ImageIcon className="w-7 h-7 text-[#8D6E63] mb-1.5" />
-                        <span className="text-xs font-bold text-[#40281d]">
-                          {isCompressing ? 'Compressing Photo for Storage...' : 'Click to Select Photo'}
-                        </span>
-                        <span className="text-[10px] text-[#78675e] mt-1">
-                          Photos are automatically compressed to save storage space
-                        </span>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={handlePhotoSelect}
-                          disabled={isCompressing}
-                          className="hidden"
-                        />
-                      </label>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <div className="relative inline-block">
-                        <img
-                          src={imagePreview}
-                          alt="Post attachment preview"
-                          className="w-full max-h-52 object-cover rounded-xl border border-[#eadfce]"
-                        />
-                        <button
-                          type="button"
-                          onClick={handleRemovePhoto}
-                          className="absolute top-2 right-2 p-1.5 rounded-full bg-red-600 text-white hover:bg-red-700 shadow-md cursor-pointer"
-                          title="Remove photo"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                      <div className="flex items-center gap-2 text-[11px] text-[#46705b] font-semibold">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-[#46705b]" />
-                        <span>Compressed for storage sake ({imageSizeKb} KB)</span>
-                      </div>
                     </div>
                   )}
                 </div>
@@ -510,6 +530,18 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
             const hasUserReacted = (emoji: string) =>
               Boolean(user && post.reactions?.[emoji]?.includes(user.id));
 
+            const isPostByTopAdmin = post.userRole === 'TOP_ADMIN';
+            const isAuthor = user?.id === post.userId;
+
+            // Permission rule: Top Admin and admin can delete any message,
+            // BUT admin CANNOT delete Top Admin message
+            const canDelete =
+              isTopAdmin ||
+              (isAdmin && !isPostByTopAdmin) ||
+              isAuthor;
+
+            const isBlockedAdminFromTopAdminPost = !isTopAdmin && isAdmin && isPostByTopAdmin;
+
             return (
               <div
                 key={post.id || Math.random().toString()}
@@ -546,13 +578,38 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
 
                 {/* Post Author & Header Info */}
                 <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-full bg-[#f4df9e]/70 border border-[#e8ce82] flex items-center justify-center text-xs font-bold text-[#8b6508]">
-                      {(post.userName || 'M').charAt(0).toUpperCase()}
-                    </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSelectedProfileUser({
+                        id: post.userId,
+                        user: {
+                          id: post.userId,
+                          fullName: post.userName,
+                          role: post.userRole,
+                          profileImageUrl: post.userProfileImageUrl || post.userAvatarUrl,
+                        },
+                      })
+                    }
+                    className="flex items-center gap-2.5 text-left group focus:outline-none cursor-pointer"
+                    title={`View ${post.userName}'s profile, badges, and stats`}
+                  >
+                    {/* User Avatar with Image Support */}
+                    {post.userProfileImageUrl || post.userAvatarUrl ? (
+                      <img
+                        src={post.userProfileImageUrl || post.userAvatarUrl}
+                        alt={post.userName}
+                        className="w-9 h-9 rounded-full object-cover border border-[#eadfce] group-hover:border-[#e2a72e] transition-colors"
+                      />
+                    ) : (
+                      <div className="w-9 h-9 rounded-full bg-[#f4df9e]/70 border border-[#e8ce82] flex items-center justify-center text-xs font-bold text-[#8b6508] font-serif-heading group-hover:border-[#e2a72e] transition-colors">
+                        {(post.userName || 'M').charAt(0).toUpperCase()}
+                      </div>
+                    )}
+
                     <div>
                       <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-bold text-[#40281d]">
+                        <span className="text-xs font-bold text-[#40281d] group-hover:text-[#8b6508] group-hover:underline transition-colors">
                           {post.userName || 'Movement Member'}
                         </span>
                         {post.userRole === 'TOP_ADMIN' && (
@@ -568,11 +625,11 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
                           </span>
                         )}
                       </div>
-                      <span className="text-[10px] text-[#78675e]">
+                      <span className="text-[10px] text-[#78675e] block">
                         {post.createdAt ? new Date(post.createdAt).toLocaleDateString(undefined, { dateStyle: 'medium' }) : 'Recent'}
                       </span>
                     </div>
-                  </div>
+                  </button>
 
                   <div className="flex items-center gap-1.5">
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#fbf7ed] text-[#5c463b] border border-[#eadfce]">
@@ -592,6 +649,31 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
                         <span>Pin</span>
                       </button>
                     )}
+
+                    {/* Message Deletion Action: Top Admin & Admin can delete any message, but admin cannot delete Top Admin message */}
+                    {canDelete ? (
+                      <button
+                        type="button"
+                        onClick={() => setDeleteConfirmPost(post)}
+                        className="p-1 rounded-lg text-[#78675e] hover:text-red-700 hover:bg-red-50 transition-colors cursor-pointer"
+                        title={
+                          isTopAdmin
+                            ? 'Delete message (Top Admin authority)'
+                            : isAdmin
+                            ? 'Delete message (Admin moderation)'
+                            : 'Delete your message'
+                        }
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    ) : isBlockedAdminFromTopAdminPost ? (
+                      <span
+                        className="p-1 text-[#b5a79f] cursor-not-allowed"
+                        title="Administrators cannot delete Top Admin messages"
+                      >
+                        <Lock className="w-3 h-3 text-[#b5a79f]" />
+                      </span>
+                    ) : null}
                   </div>
                 </div>
 
@@ -619,7 +701,7 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
                   </div>
                 )}
 
-                {/* Reactable Messages Section - Always visible buttons for Members, Admins, and Top Admin */}
+                {/* Reactable Messages Section */}
                 <div className="pt-2.5 border-t border-[#eadfce]/70 flex flex-wrap items-center justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-1.5">
                     {REACTION_EMOJIS.map((emoji) => {
@@ -665,6 +747,55 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
         </div>
       )}
 
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmPost && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn"
+          onClick={() => setDeleteConfirmPost(null)}
+        >
+          <div
+            className="app-card w-full max-w-md border border-[#eadfce] p-5 sm:p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3 text-red-700 mb-3">
+              <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center flex-shrink-0">
+                <Trash2 className="w-5 h-5 text-red-700" />
+              </div>
+              <div>
+                <h3 className="font-serif-heading text-base font-bold text-[#40281d]">
+                  Delete Community Message
+                </h3>
+                <p className="text-xs text-[#78675e]">This action cannot be undone.</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-[#5c463b] mb-4 bg-[#fbf7ed] p-3 rounded-xl border border-[#eadfce] leading-relaxed">
+              Are you sure you want to remove &quot;{deleteConfirmPost.title}&quot; posted by{' '}
+              <strong className="text-[#40281d]">{deleteConfirmPost.userName}</strong>?
+            </p>
+
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmPost(null)}
+                disabled={isDeleting}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-[#78675e] hover:text-[#40281d] cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                disabled={isDeleting}
+                className="px-4 py-2 rounded-xl bg-red-700 text-white text-xs font-bold hover:bg-red-800 disabled:opacity-50 transition-all cursor-pointer shadow-xs"
+              >
+                {isDeleting ? 'Deleting...' : 'Confirm Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Lightbox Image Preview Modal */}
       {modalImagePost && modalImagePost.imageUrl && (
         <ImageModal
@@ -674,6 +805,16 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
           title={modalImagePost.title}
           submitterName={modalImagePost.userName}
           actionType={modalImagePost.category}
+        />
+      )}
+
+      {/* User Profile Modal */}
+      {selectedProfileUser && (
+        <UserProfileModal
+          isOpen={!!selectedProfileUser}
+          userId={selectedProfileUser.id}
+          initialUser={selectedProfileUser.user}
+          onClose={() => setSelectedProfileUser(null)}
         />
       )}
     </div>

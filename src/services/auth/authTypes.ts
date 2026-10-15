@@ -18,5 +18,5 @@ export interface AuthContextValue extends AuthState {
   forgotPassword: (email: string) => Promise<string>;
   claimTopAdmin: (bootstrapKey: string) => Promise<void>;
   refreshUser: () => Promise<void>;
-  updateProfile: (fullName?: string, profileImageUrl?: string) => Promise<void>;
+  updateProfile: (fullName?: string, profileImageUrl?: string, bio?: string) => Promise<void>;
 }

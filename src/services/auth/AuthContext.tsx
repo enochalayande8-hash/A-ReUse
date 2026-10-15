@@ -675,12 +675,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const updateProfile = async (fullName?: string, profileImageUrl?: string) => {
+  const updateProfile = async (fullName?: string, profileImageUrl?: string, bio?: string) => {
     if (auth?.currentUser && fullName) {
       await updateFirebaseProfile(auth.currentUser, { displayName: fullName }).catch(() => {});
     }
     try {
-      const res = await api.updateProfile({ fullName, profileImageUrl });
+      const res = await api.updateProfile({ fullName, profileImageUrl, bio });
       setUser(res.user);
       saveUserToFirestore(res.user).catch(() => {});
     } catch {
@@ -688,8 +688,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (user) {
         const updated: User = {
           ...user,
-          ...(fullName ? { fullName } : {}),
-          ...(profileImageUrl ? { profileImageUrl } : {}),
+          ...(fullName !== undefined ? { fullName } : {}),
+          ...(profileImageUrl !== undefined ? { profileImageUrl } : {}),
+          ...(bio !== undefined ? { bio } : {}),
         };
         setUser(updated);
         saveUserToFirestore(updated).catch(() => {});

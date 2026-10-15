@@ -289,7 +289,7 @@ export const api = {
   getCommunityPosts: () =>
     request<{ posts: CommunityPost[] }>('/api/community/posts'),
 
-  createCommunityPost: (payload: { title: string; content: string; category: string; imageUrl?: string }) =>
+  createCommunityPost: (payload: { title: string; content: string; category: string; imageUrl?: string; userProfileImageUrl?: string }) =>
     request<{ post: CommunityPost; message: string }>('/api/community/posts', {
       method: 'POST',
       body: JSON.stringify(payload),

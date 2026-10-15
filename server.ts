@@ -2126,7 +2126,7 @@ async function startServer() {
       userId: user.id,
       userName: user.fullName,
       userRole: user.role,
-      userProfileImageUrl: user.profileImageUrl || user.avatarUrl,
+      userProfileImageUrl: req.body.userProfileImageUrl || user.profileImageUrl || user.avatarUrl,
       title: String(title).trim(),
       content: String(content).trim(),
       category: category || 'DISCUSSION',
@@ -2200,6 +2200,12 @@ async function startServer() {
 
     if (!isTopAdmin && !isActiveAdmin && !isAuthor) {
       return res.status(403).json({ error: 'Forbidden. Top Admins, Admins, and the author may delete this message.' });
+    }
+
+    // Top Admin and admin can delete any message, but admin CANNOT delete Top Admin message
+    const isPostByTopAdmin = post.userRole === 'TOP_ADMIN';
+    if (!isTopAdmin && isActiveAdmin && isPostByTopAdmin) {
+      return res.status(403).json({ error: 'Security restriction: Administrators cannot delete messages published by Top Admin.' });
     }
 
     const [deletedPost] = db.communityPosts.splice(postIndex, 1);

@@ -165,9 +165,17 @@ export const Navbar: React.FC<NavbarProps> = ({
                         : 'border-[#eadfce] hover:border-[#e2a72e]/50 bg-white/80'
                     }`}
                   >
-                    <div className="w-7 h-7 rounded-full bg-[#40281d] text-[#e2a72e] font-bold text-xs flex items-center justify-center border border-[#e2a72e]/30">
-                      {user.fullName ? user.fullName.charAt(0).toUpperCase() : 'U'}
-                    </div>
+                    {user.profileImageUrl || user.avatarUrl ? (
+                      <img
+                        src={user.profileImageUrl || user.avatarUrl}
+                        alt={user.fullName || 'User'}
+                        className="w-7 h-7 rounded-full object-cover border border-[#e2a72e]/50"
+                      />
+                    ) : (
+                      <div className="w-7 h-7 rounded-full bg-[#40281d] text-[#e2a72e] font-bold text-xs flex items-center justify-center border border-[#e2a72e]/30">
+                        {user.fullName ? user.fullName.charAt(0).toUpperCase() : 'U'}
+                      </div>
+                    )}
                     <div className="text-left text-xs leading-tight">
                       <p className="font-bold text-[#40281d] truncate max-w-[110px]">{user.fullName}</p>
                       <span className="text-[10px] font-semibold text-[#78675e] uppercase">{user.role}</span>
