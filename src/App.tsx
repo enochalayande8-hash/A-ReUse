@@ -177,7 +177,7 @@ const MainContent: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#fbf7ed] text-[#40281d] selection:bg-[#e2a72e]/30 selection:text-[#40281d]">
+    <div className="min-h-screen flex flex-col bg-[#fbf7ed] text-[#40281d] selection:bg-[#e2a72e]/30 selection:text-[#40281d] w-full max-w-full overflow-x-hidden">
       {/* Top Navigation */}
       <Navbar
         currentTab={currentTab}
@@ -192,7 +192,7 @@ const MainContent: React.FC = () => {
 
       {/* Main View Router - Mobile First App Container */}
       <main
-        className={`flex-1 w-full mx-auto px-4 sm:px-6 py-5 sm:py-8 pb-24 lg:pb-12 ${
+        className={`flex-1 w-full mx-auto px-3 sm:px-6 py-4 sm:py-8 pb-24 lg:pb-12 ${
           currentTab === 'top-admin' || currentTab === 'admin-reviews'
             ? 'max-w-5xl'
             : 'max-w-2xl'

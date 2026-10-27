@@ -72,13 +72,13 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   return (
     <>
-      <header className="sticky top-0 z-40 bg-[#fffdf8]/90 backdrop-blur-md border-b border-[#eadfce] shadow-xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16 md:h-20">
+      <header className="sticky top-0 z-40 bg-[#fffdf8]/90 backdrop-blur-md border-b border-[#eadfce] shadow-xs w-full max-w-full overflow-x-hidden">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16 md:h-20 gap-2">
             {/* Logo */}
             <div
               onClick={() => handleNavClick('home')}
-              className="cursor-pointer transition-transform active:scale-98"
+              className="cursor-pointer transition-transform active:scale-98 min-w-0 flex-1 sm:flex-initial"
             >
               <BrandLogo
                 size="md"
@@ -231,7 +231,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
 
               {/* Mobile Header Controls: Notifications, Profile Picture, and Menu Toggle */}
-              <div className="lg:hidden flex items-center gap-2">
+              <div className="lg:hidden flex items-center gap-1.5 shrink-0">
                 {isAuthenticated && (
                   <button
                     onClick={onOpenNotifications}
