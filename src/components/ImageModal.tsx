@@ -15,7 +15,9 @@ import {
 interface ImageModalProps {
   isOpen: boolean;
   onClose: () => void;
-  imageUrl: string;
+  imageUrl?: string;
+  videoUrl?: string;
+  mediaType?: 'image' | 'video';
   title?: string;
   submitterName?: string;
   submitterEmail?: string;
@@ -29,7 +31,9 @@ export const ImageModal: React.FC<ImageModalProps> = ({
   isOpen,
   onClose,
   imageUrl,
-  title = 'Proof Evidence Photo',
+  videoUrl,
+  mediaType,
+  title = 'Proof Evidence Media',
   submitterName,
   submitterEmail,
   submittedAt,
@@ -39,6 +43,13 @@ export const ImageModal: React.FC<ImageModalProps> = ({
 }) => {
   const [zoom, setZoom] = useState(1);
   const [imgError, setImgError] = useState(false);
+
+  const effectiveMediaSrc = videoUrl || imageUrl || '';
+  const isVideo =
+    mediaType === 'video' ||
+    !!videoUrl ||
+    effectiveMediaSrc.startsWith('data:video/') ||
+    /\.(mp4|webm|mov|ogg)($|\?)/i.test(effectiveMediaSrc);
 
   useEffect(() => {
     if (isOpen) {
@@ -154,25 +165,36 @@ export const ImageModal: React.FC<ImageModalProps> = ({
           </div>
         </div>
 
-        {/* Image Viewer Body */}
+        {/* Media Viewer Body */}
         <div className="relative flex-1 min-h-[300px] sm:min-h-[420px] max-h-[65vh] overflow-auto bg-stone-900/95 flex items-center justify-center p-4">
           {imgError ? (
             <div className="text-center p-6 space-y-3 bg-white/10 rounded-2xl border border-white/20 text-white max-w-md">
-              <p className="text-sm font-bold text-amber-300">Unable to display photographic evidence</p>
+              <p className="text-sm font-bold text-amber-300">Unable to display media</p>
               <p className="text-xs text-stone-300">
-                The image storage link is unavailable or requires authenticated access.
+                The media link is unavailable or requires authenticated access.
               </p>
-              {imageUrl && (
+              {effectiveMediaSrc && (
                 <a
-                  href={imageUrl}
+                  href={effectiveMediaSrc}
                   target="_blank"
                   rel="noreferrer"
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 text-stone-950 font-bold text-xs hover:bg-amber-400"
                 >
                   <ExternalLink className="w-3.5 h-3.5" />
-                  <span>Try Direct Image URL</span>
+                  <span>Try Direct Media URL</span>
                 </a>
               )}
+            </div>
+          ) : isVideo ? (
+            <div className="flex items-center justify-center w-full max-h-[60vh]">
+              <video
+                src={effectiveMediaSrc}
+                controls
+                autoPlay
+                playsInline
+                className="max-h-[60vh] max-w-full rounded-lg shadow-xl bg-black"
+                onError={() => setImgError(true)}
+              />
             </div>
           ) : (
             <div
@@ -180,7 +202,7 @@ export const ImageModal: React.FC<ImageModalProps> = ({
               style={{ transform: `scale(${zoom})` }}
             >
               <img
-                src={imageUrl}
+                src={effectiveMediaSrc}
                 alt="Submitted Proof Evidence"
                 onError={() => setImgError(true)}
                 className="max-h-[60vh] max-w-full object-contain rounded-lg shadow-xl select-none"

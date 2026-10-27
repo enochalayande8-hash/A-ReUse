@@ -16,6 +16,7 @@ import {
   X,
   KeyRound,
   CheckCircle,
+  Bell,
 } from 'lucide-react';
 
 import { OrganizationProfile } from '../types';
@@ -25,6 +26,8 @@ interface NavbarProps {
   onSelectTab: (tab: string) => void;
   onOpenOwnerSetup: () => void;
   onOpenAuthModal: (mode: 'login' | 'signup') => void;
+  onOpenNotifications?: () => void;
+  unreadNotificationsCount?: number;
   pendingReviewsCount?: number;
   orgProfile?: OrganizationProfile;
 }
@@ -34,6 +37,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSelectTab,
   onOpenOwnerSetup,
   onOpenAuthModal,
+  onOpenNotifications,
+  unreadNotificationsCount = 0,
   pendingReviewsCount = 0,
   orgProfile,
 }) => {
@@ -142,90 +147,133 @@ export const Navbar: React.FC<NavbarProps> = ({
               )}
             </nav>
 
-            {/* Right Action / Auth Controls */}
-            <div className="hidden md:flex items-center gap-3">
-              {canViewOwnerSetup && !isTopAdmin && (
-                <button
-                  onClick={onOpenOwnerSetup}
-                  title="Owner Authorization"
-                  className="px-3 py-1.5 rounded-xl border border-[#eadfce] bg-white/70 hover:bg-white text-[11px] font-bold text-[#5c463b] flex items-center gap-1.5 transition-all cursor-pointer"
-                >
-                  <KeyRound className="w-3.5 h-3.5 text-[#e2a72e]" />
-                  <span>Owner Setup</span>
-                </button>
-              )}
+              {/* Right Action / Auth Controls */}
+              <div className="hidden md:flex items-center gap-2.5">
+                {canViewOwnerSetup && !isTopAdmin && (
+                  <button
+                    onClick={onOpenOwnerSetup}
+                    title="Owner Authorization"
+                    className="px-3 py-1.5 rounded-xl border border-[#eadfce] bg-white/70 hover:bg-white text-[11px] font-bold text-[#5c463b] flex items-center gap-1.5 transition-all cursor-pointer"
+                  >
+                    <KeyRound className="w-3.5 h-3.5 text-[#e2a72e]" />
+                    <span>Owner Setup</span>
+                  </button>
+                )}
 
-              {isAuthenticated && user ? (
-                <div className="flex items-center gap-2">
+                {/* Notification Bell Button (Desktop) */}
+                {isAuthenticated && (
+                  <button
+                    onClick={onOpenNotifications}
+                    title="Activity & Notifications"
+                    className="p-2 rounded-xl text-[#5c463b] hover:text-[#40281d] hover:bg-[#40281d]/5 transition-all cursor-pointer relative"
+                    aria-label="View notifications"
+                  >
+                    <Bell className="w-4 h-4 text-[#40281d]" />
+                    {unreadNotificationsCount > 0 && (
+                      <span className="absolute -top-1 -right-1 px-1.5 py-0.2 rounded-full text-[9px] font-extrabold bg-[#e2a72e] text-[#40281d] border border-white shadow-xs">
+                        {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
+                      </span>
+                    )}
+                  </button>
+                )}
+
+                {isAuthenticated && user ? (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleNavClick('profile')}
+                      className={`flex items-center gap-2.5 px-3 py-1.5 rounded-full border transition-all cursor-pointer ${
+                        currentTab === 'profile'
+                          ? 'border-[#e2a72e] bg-[#fbf7ed]'
+                          : 'border-[#eadfce] hover:border-[#e2a72e]/50 bg-white/80'
+                      }`}
+                    >
+                      {user.profileImageUrl || user.avatarUrl ? (
+                        <img
+                          src={user.profileImageUrl || user.avatarUrl}
+                          alt={user.fullName || 'User'}
+                          className="w-7 h-7 rounded-full object-cover border-2 border-[#e2a72e] shadow-2xs"
+                        />
+                      ) : (
+                        <div className="w-7 h-7 rounded-full bg-[#40281d] text-[#e2a72e] font-bold text-xs flex items-center justify-center border border-[#e2a72e]/30">
+                          {user.fullName ? user.fullName.charAt(0).toUpperCase() : 'U'}
+                        </div>
+                      )}
+                      <div className="text-left text-xs leading-tight">
+                        <p className="font-bold text-[#40281d] truncate max-w-[110px]">{user.fullName}</p>
+                        <span className="text-[10px] font-semibold text-[#78675e] uppercase">{user.role}</span>
+                      </div>
+                    </button>
+
+                    <button
+                      onClick={() => logout()}
+                      title="Log Out"
+                      className="p-2 rounded-xl text-[#78675e] hover:text-[#40281d] hover:bg-[#40281d]/5 transition-colors cursor-pointer"
+                    >
+                      <LogOut className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => onOpenAuthModal('login')}
+                      className="px-4 py-2 rounded-xl text-xs font-bold text-[#40281d] hover:bg-[#40281d]/5 transition-colors cursor-pointer"
+                    >
+                      Log In
+                    </button>
+                    <button
+                      onClick={() => onOpenAuthModal('signup')}
+                      className="px-4 py-2 rounded-xl bg-[#40281d] text-[#fffdf8] text-xs font-bold hover:bg-[#523325] border border-[#e2a72e]/40 shadow-xs transition-all cursor-pointer"
+                    >
+                      Sign Up
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Mobile Header Controls: Notifications, Profile Picture, and Menu Toggle */}
+              <div className="lg:hidden flex items-center gap-2">
+                {isAuthenticated && (
+                  <button
+                    onClick={onOpenNotifications}
+                    title="Notifications"
+                    className="p-1.5 rounded-xl text-[#40281d] hover:bg-[#40281d]/5 relative transition-colors cursor-pointer"
+                    aria-label="View notifications"
+                  >
+                    <Bell className="w-5 h-5 text-[#40281d]" />
+                    {unreadNotificationsCount > 0 && (
+                      <span className="absolute 1 top-0 right-0 w-2.5 h-2.5 rounded-full bg-[#e2a72e] ring-2 ring-white" />
+                    )}
+                  </button>
+                )}
+
+                {isAuthenticated && user && (
                   <button
                     onClick={() => handleNavClick('profile')}
-                    className={`flex items-center gap-2.5 px-3 py-1.5 rounded-full border transition-all cursor-pointer ${
-                      currentTab === 'profile'
-                        ? 'border-[#e2a72e] bg-[#fbf7ed]'
-                        : 'border-[#eadfce] hover:border-[#e2a72e]/50 bg-white/80'
-                    }`}
+                    className="w-8 h-8 rounded-full overflow-hidden border-2 border-[#e2a72e] cursor-pointer flex items-center justify-center shrink-0 shadow-2xs"
+                    title={`Profile (${user.fullName})`}
                   >
                     {user.profileImageUrl || user.avatarUrl ? (
                       <img
                         src={user.profileImageUrl || user.avatarUrl}
                         alt={user.fullName || 'User'}
-                        className="w-7 h-7 rounded-full object-cover border border-[#e2a72e]/50"
+                        className="w-full h-full object-cover"
                       />
                     ) : (
-                      <div className="w-7 h-7 rounded-full bg-[#40281d] text-[#e2a72e] font-bold text-xs flex items-center justify-center border border-[#e2a72e]/30">
+                      <div className="w-full h-full bg-[#40281d] text-[#e2a72e] font-bold text-xs flex items-center justify-center">
                         {user.fullName ? user.fullName.charAt(0).toUpperCase() : 'U'}
                       </div>
                     )}
-                    <div className="text-left text-xs leading-tight">
-                      <p className="font-bold text-[#40281d] truncate max-w-[110px]">{user.fullName}</p>
-                      <span className="text-[10px] font-semibold text-[#78675e] uppercase">{user.role}</span>
-                    </div>
                   </button>
+                )}
 
-                  <button
-                    onClick={() => logout()}
-                    title="Log Out"
-                    className="p-2 rounded-xl text-[#78675e] hover:text-[#40281d] hover:bg-[#40281d]/5 transition-colors cursor-pointer"
-                  >
-                    <LogOut className="w-4 h-4" />
-                  </button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => onOpenAuthModal('login')}
-                    className="px-4 py-2 rounded-xl text-xs font-bold text-[#40281d] hover:bg-[#40281d]/5 transition-colors cursor-pointer"
-                  >
-                    Log In
-                  </button>
-                  <button
-                    onClick={() => onOpenAuthModal('signup')}
-                    className="px-4 py-2 rounded-xl bg-[#40281d] text-[#fffdf8] text-xs font-bold hover:bg-[#523325] border border-[#e2a72e]/40 shadow-xs transition-all cursor-pointer"
-                  >
-                    Sign Up
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* Mobile Menu Toggle Button */}
-            <div className="lg:hidden flex items-center gap-2">
-              {isAuthenticated && user && (
                 <button
-                  onClick={() => handleNavClick('profile')}
-                  className="w-8 h-8 rounded-full bg-[#40281d] text-[#e2a72e] font-bold text-xs flex items-center justify-center border border-[#e2a72e]/30"
+                  onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                  className="p-2 rounded-xl text-[#40281d] hover:bg-[#40281d]/5 transition-colors cursor-pointer"
+                  aria-label="Toggle menu"
                 >
-                  {user.fullName ? user.fullName.charAt(0).toUpperCase() : 'U'}
+                  {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
                 </button>
-              )}
-              <button
-                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className="p-2 rounded-xl text-[#40281d] hover:bg-[#40281d]/5 transition-colors cursor-pointer"
-                aria-label="Toggle menu"
-              >
-                {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-              </button>
-            </div>
+              </div>
           </div>
         </div>
 
@@ -321,10 +369,20 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <div className="flex items-center gap-2 pt-1">
                   <button
                     onClick={() => handleNavClick('profile')}
-                    className="flex-1 py-2.5 rounded-2xl bg-white border border-[#eadfce] text-xs font-bold text-[#40281d] flex items-center justify-center gap-2"
+                    className="flex-1 py-2 px-3 rounded-2xl bg-white border border-[#eadfce] text-xs font-bold text-[#40281d] flex items-center gap-2.5 overflow-hidden"
                   >
-                    <UserIcon className="w-4 h-4" />
-                    <span>Profile ({user.fullName})</span>
+                    {user.profileImageUrl || user.avatarUrl ? (
+                      <img
+                        src={user.profileImageUrl || user.avatarUrl}
+                        alt={user.fullName || 'User'}
+                        className="w-6 h-6 rounded-full object-cover border border-[#e2a72e]/50 shrink-0"
+                      />
+                    ) : (
+                      <div className="w-6 h-6 rounded-full bg-[#40281d] text-[#e2a72e] text-[10px] font-bold flex items-center justify-center shrink-0">
+                        {user.fullName ? user.fullName.charAt(0).toUpperCase() : 'U'}
+                      </div>
+                    )}
+                    <span className="truncate">Profile ({user.fullName})</span>
                   </button>
                   <button
                     onClick={() => {

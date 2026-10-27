@@ -27,6 +27,7 @@ import {
   LeaderboardEntry,
   AdminUserRecord,
   SystemStats,
+  AppNotification,
 } from '../../types';
 
 /**
@@ -137,6 +138,8 @@ export async function createSubmissionInFirestore(submission: ProofSubmission): 
       description: submission.description,
       evidenceUrl: submission.evidenceUrl,
       ...(submission.proofImageUrl ? { proofImageUrl: submission.proofImageUrl } : {}),
+      ...(submission.videoUrl ? { videoUrl: submission.videoUrl } : {}),
+      ...(submission.mediaType ? { mediaType: submission.mediaType } : {}),
       ...(submission.cloudinaryPublicId ? { cloudinaryPublicId: submission.cloudinaryPublicId } : {}),
       ...(submission.cloudinarySecureUrl ? { cloudinarySecureUrl: submission.cloudinarySecureUrl } : {}),
       submittedAt: submission.submittedAt,
@@ -1142,5 +1145,61 @@ export async function fetchSystemStatsFromFirestore(): Promise<SystemStats> {
     return defaultStats;
   }
 }
+
+// ----------------------------------------------------
+// NOTIFICATIONS IN FIRESTORE
+// ----------------------------------------------------
+
+export async function createNotificationInFirestore(notification: AppNotification): Promise<void> {
+  if (!db || !notification?.id) return;
+  try {
+    const notifRef = doc(db, 'notifications', notification.id);
+    await setDoc(notifRef, notification, { merge: true });
+  } catch (err) {
+    console.warn('[Firestore] createNotification error:', err);
+  }
+}
+
+export async function fetchUserNotificationsFromFirestore(userId?: string): Promise<AppNotification[]> {
+  if (!db) return [];
+  try {
+    const notifCol = collection(db, 'notifications');
+    const snap = await getDocs(notifCol);
+    const all = snap.docs.map((d) => ({ id: d.id, ...d.data() } as AppNotification));
+
+    // Filter to user-specific or ALL broadcast
+    const relevant = all.filter((n) => n.userId === 'ALL' || (userId && n.userId === userId));
+    return relevant.sort(
+      (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+    );
+  } catch (err) {
+    console.warn('[Firestore] fetchUserNotifications error:', err);
+    return [];
+  }
+}
+
+export async function markNotificationReadInFirestore(notificationId: string): Promise<void> {
+  if (!db || !notificationId) return;
+  try {
+    const notifRef = doc(db, 'notifications', notificationId);
+    await updateDoc(notifRef, { read: true });
+  } catch (err) {
+    console.warn('[Firestore] markNotificationRead error:', err);
+  }
+}
+
+export async function markAllNotificationsReadInFirestore(userId: string): Promise<void> {
+  if (!db || !userId) return;
+  try {
+    const list = await fetchUserNotificationsFromFirestore(userId);
+    const unread = list.filter((n) => !n.read && (n.userId === userId || n.userId === 'ALL'));
+    await Promise.all(
+      unread.map((n) => updateDoc(doc(db, 'notifications', n.id), { read: true }).catch(() => {}))
+    );
+  } catch (err) {
+    console.warn('[Firestore] markAllNotificationsRead error:', err);
+  }
+}
+
 
 

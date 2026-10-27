@@ -19,6 +19,8 @@ import {
   Filter,
   MessageSquare,
   Award,
+  Film,
+  Video,
 } from 'lucide-react';
 
 interface AdminReviewPageProps {
@@ -264,46 +266,36 @@ export const AdminReviewPage: React.FC<AdminReviewPageProps> = ({ onReviewComple
                 {selectedSubmission.description}
               </p>
 
-              {(selectedSubmission.proofImageUrl || selectedSubmission.evidenceUrl) && (
-                <div className="mt-3">
-                  <div className="flex items-center justify-between mb-1">
-                    <p className="text-xs font-bold text-[#2C1810] uppercase">Evidence Photo:</p>
-                    {selectedSubmission.cloudinaryPublicId && (
-                      <span className="text-[10px] text-[#8D6E63] font-medium flex items-center gap-1">
-                        <span>Asset Ref:</span>
-                        <code className="bg-black/5 px-1 py-0.5 rounded text-[9px] font-mono text-[#2C1810]">
-                          {selectedSubmission.cloudinaryPublicId}
-                        </code>
-                      </span>
-                    )}
-                  </div>
-                  <div className="relative group rounded-xl overflow-hidden border border-[#2C1810]/15 max-h-60 bg-black/5">
-                    {imageLoadError ? (
-                      <div className="p-6 text-center space-y-2 bg-rose-50/70 border border-rose-200 rounded-xl">
-                        <AlertCircle className="w-6 h-6 text-rose-600 mx-auto" />
-                        <p className="text-xs font-bold text-rose-800">Unable to load proof image</p>
-                        <p className="text-[11px] text-rose-600 max-w-xs mx-auto">
-                          The evidence image could not be loaded securely. The storage link may be expired, private, or temporarily unreachable.
-                        </p>
-                        {(selectedSubmission.proofImageUrl || selectedSubmission.evidenceUrl) && (
-                          <button
-                            type="button"
-                            onClick={() => setModalImageSubmission(selectedSubmission)}
-                            className="inline-flex items-center gap-1 text-xs text-rose-700 underline font-semibold mt-1 hover:text-rose-900 cursor-pointer"
-                          >
-                            <ExternalLink className="w-3.5 h-3.5" />
-                            <span>Try Opening In Viewer</span>
-                          </button>
-                        )}
-                      </div>
-                    ) : (
-                      <>
-                        <img
-                          src={selectedSubmission.proofImageUrl || selectedSubmission.evidenceUrl}
-                          alt="Submitted Proof"
-                          onError={() => setImageLoadError(true)}
-                          onClick={() => setModalImageSubmission(selectedSubmission)}
-                          className="w-full h-60 object-cover cursor-zoom-in transition-transform duration-200 hover:scale-102"
+              {(selectedSubmission.proofImageUrl || selectedSubmission.evidenceUrl || selectedSubmission.videoUrl) && (() => {
+                const isSelectedSubVideo =
+                  selectedSubmission.mediaType === 'video' ||
+                  !!selectedSubmission.videoUrl ||
+                  (selectedSubmission.evidenceUrl && selectedSubmission.evidenceUrl.startsWith('data:video/')) ||
+                  /\.(mp4|webm|mov)($|\?)/i.test(selectedSubmission.evidenceUrl || '');
+
+                return (
+                  <div className="mt-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-xs font-bold text-[#2C1810] uppercase">
+                        Evidence {isSelectedSubVideo ? 'Video Clip:' : 'Photo:'}
+                      </p>
+                      {selectedSubmission.cloudinaryPublicId && (
+                        <span className="text-[10px] text-[#8D6E63] font-medium flex items-center gap-1">
+                          <span>Asset Ref:</span>
+                          <code className="bg-black/5 px-1 py-0.5 rounded text-[9px] font-mono text-[#2C1810]">
+                            {selectedSubmission.cloudinaryPublicId}
+                          </code>
+                        </span>
+                      )}
+                    </div>
+
+                    {isSelectedSubVideo ? (
+                      <div className="relative group rounded-xl overflow-hidden border border-[#2C1810]/15 max-h-60 bg-black">
+                        <video
+                          src={selectedSubmission.videoUrl || selectedSubmission.evidenceUrl}
+                          controls
+                          playsInline
+                          className="w-full h-60 object-contain"
                         />
                         <button
                           type="button"
@@ -311,13 +303,53 @@ export const AdminReviewPage: React.FC<AdminReviewPageProps> = ({ onReviewComple
                           className="absolute bottom-2 right-2 px-2.5 py-1 rounded-lg bg-black/75 hover:bg-black text-white text-[11px] font-bold flex items-center gap-1 backdrop-blur-xs cursor-pointer shadow-md"
                         >
                           <ExternalLink className="w-3 h-3" />
-                          <span>Pop Up Photo</span>
+                          <span>Pop Up Video</span>
                         </button>
-                      </>
+                      </div>
+                    ) : (
+                      <div className="relative group rounded-xl overflow-hidden border border-[#2C1810]/15 max-h-60 bg-black/5">
+                        {imageLoadError ? (
+                          <div className="p-6 text-center space-y-2 bg-rose-50/70 border border-rose-200 rounded-xl">
+                            <AlertCircle className="w-6 h-6 text-rose-600 mx-auto" />
+                            <p className="text-xs font-bold text-rose-800">Unable to load proof image</p>
+                            <p className="text-[11px] text-rose-600 max-w-xs mx-auto">
+                              The evidence image could not be loaded securely. The storage link may be expired, private, or temporarily unreachable.
+                            </p>
+                            {(selectedSubmission.proofImageUrl || selectedSubmission.evidenceUrl) && (
+                              <button
+                                type="button"
+                                onClick={() => setModalImageSubmission(selectedSubmission)}
+                                className="inline-flex items-center gap-1 text-xs text-rose-700 underline font-semibold mt-1 hover:text-rose-900 cursor-pointer"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" />
+                                <span>Try Opening In Viewer</span>
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <>
+                            <img
+                              src={selectedSubmission.proofImageUrl || selectedSubmission.evidenceUrl}
+                              alt="Submitted Proof"
+                              onError={() => setImageLoadError(true)}
+                              onClick={() => setModalImageSubmission(selectedSubmission)}
+                              className="w-full h-60 object-cover cursor-zoom-in transition-transform duration-200 hover:scale-102"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setModalImageSubmission(selectedSubmission)}
+                              className="absolute bottom-2 right-2 px-2.5 py-1 rounded-lg bg-black/75 hover:bg-black text-white text-[11px] font-bold flex items-center gap-1 backdrop-blur-xs cursor-pointer shadow-md"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                              <span>Pop Up Photo</span>
+                            </button>
+                          </>
+                        )}
+                      </div>
                     )}
                   </div>
-                </div>
-              )}
+                );
+              })()}
             </div>
 
             <form onSubmit={handleProcessReview} className="space-y-3">
@@ -461,16 +493,28 @@ export const AdminReviewPage: React.FC<AdminReviewPageProps> = ({ onReviewComple
 
                 <div className="flex flex-wrap items-center gap-3 text-[11px] text-[#8D6E63] pt-1">
                   <span>Submitted: {new Date(sub.submittedAt).toLocaleDateString()}</span>
-                  {(sub.proofImageUrl || sub.evidenceUrl) && (
-                    <button
-                      type="button"
-                      onClick={() => setModalImageSubmission(sub)}
-                      className="inline-flex items-center gap-1 font-semibold text-[#2C1810] underline hover:text-[#8D6E63] cursor-pointer"
-                    >
-                      <ExternalLink className="w-3 h-3 text-[#D4AF37]" />
-                      <span>Inspect Evidence Image</span>
-                    </button>
-                  )}
+                  {(sub.proofImageUrl || sub.evidenceUrl || sub.videoUrl) && (() => {
+                    const isSubVideo =
+                      sub.mediaType === 'video' ||
+                      !!sub.videoUrl ||
+                      (sub.evidenceUrl && sub.evidenceUrl.startsWith('data:video/')) ||
+                      /\.(mp4|webm|mov)($|\?)/i.test(sub.evidenceUrl || '');
+
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => setModalImageSubmission(sub)}
+                        className="inline-flex items-center gap-1 font-semibold text-[#2C1810] underline hover:text-[#8D6E63] cursor-pointer"
+                      >
+                        {isSubVideo ? (
+                          <Film className="w-3.5 h-3.5 text-[#D4AF37]" />
+                        ) : (
+                          <ExternalLink className="w-3 h-3 text-[#D4AF37]" />
+                        )}
+                        <span>Inspect Evidence {isSubVideo ? 'Video' : 'Image'}</span>
+                      </button>
+                    );
+                  })()}
                   {sub.cloudinaryPublicId && (
                     <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
                       Verified Media
@@ -516,12 +560,14 @@ export const AdminReviewPage: React.FC<AdminReviewPageProps> = ({ onReviewComple
           ))}
         </div>
       )}
-      {/* Image Modal Lightbox Popup */}
+      {/* Media Modal Lightbox Popup */}
       {modalImageSubmission && (
         <ImageModal
           isOpen={!!modalImageSubmission}
           onClose={() => setModalImageSubmission(null)}
           imageUrl={modalImageSubmission.proofImageUrl || modalImageSubmission.evidenceUrl || ''}
+          videoUrl={modalImageSubmission.videoUrl}
+          mediaType={modalImageSubmission.mediaType}
           title={`Review Evidence - ${modalImageSubmission.actionType.replace(/_/g, ' ')}`}
           submitterName={modalImageSubmission.userName}
           submitterEmail={modalImageSubmission.userEmail}

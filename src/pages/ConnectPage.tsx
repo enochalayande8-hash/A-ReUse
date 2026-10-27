@@ -8,7 +8,9 @@ import {
   togglePinInFirestore,
   deleteCommunityPostFromFirestore,
   compressImageToDataUrl,
+  fetchRegisteredUsersFromFirestore,
 } from '../services/firebase/firestoreService';
+import { getUserBadges } from '../utils/badgeUtils';
 import { EmptyState } from '../components/EmptyState';
 import { ImageModal } from '../components/ImageModal';
 import { UserProfileModal } from '../components/UserProfileModal';
@@ -29,6 +31,10 @@ import {
   Trash2,
   Lock,
   Sparkles,
+  Video,
+  Users,
+  Search,
+  Play,
 } from 'lucide-react';
 
 interface ConnectPageProps {
@@ -54,10 +60,20 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [category, setCategory] = useState<'CAMPAIGN' | 'DISCUSSION' | 'ACHIEVEMENT' | 'INITIATIVE'>('DISCUSSION');
-  const [showPhotoSection, setShowPhotoSection] = useState(false);
+  const [mediaAttachmentType, setMediaAttachmentType] = useState<'none' | 'photo' | 'video'>('none');
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [isCompressing, setIsCompressing] = useState(false);
   const [imageSizeKb, setImageSizeKb] = useState<number | null>(null);
+  const [videoPreview, setVideoPreview] = useState<string | null>(null);
+  const [videoSizeMb, setVideoSizeMb] = useState<number | null>(null);
+  const [isVideoUploading, setIsVideoUploading] = useState(false);
+
+  // Gamechangers Directory State
+  const [showGamechangersModal, setShowGamechangersModal] = useState(false);
+  const [gamechangers, setGamechangers] = useState<User[]>([]);
+  const [isGamechangersLoading, setIsGamechangersLoading] = useState(false);
+  const [gamechangerSearch, setGamechangerSearch] = useState('');
+  const [gamechangerRoleFilter, setGamechangerRoleFilter] = useState<'ALL' | 'TOP_ADMIN' | 'ADMIN' | 'REGISTERED_USER'>('ALL');
 
   // Interaction State
   const [modalImagePost, setModalImagePost] = useState<CommunityPost | null>(null);
@@ -85,6 +101,39 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
     }
   }, [posts]);
 
+  // Load registered gamechangers list
+  const loadGamechangers = async () => {
+    setIsGamechangersLoading(true);
+    try {
+      let list: User[] = [];
+
+      // 1. Try server API
+      try {
+        const res = await api.getGamechangers();
+        if (res && res.gamechangers) {
+          list = res.gamechangers;
+        }
+      } catch {
+        // Fallback to Firestore
+      }
+
+      // 2. Direct Firestore fallback
+      if (list.length === 0) {
+        try {
+          list = await fetchRegisteredUsersFromFirestore();
+        } catch (fsErr) {
+          console.warn('[ConnectPage] Firestore registered users note:', fsErr);
+        }
+      }
+
+      setGamechangers(list);
+    } catch (err) {
+      console.warn('[ConnectPage] Error loading gamechangers:', err);
+    } finally {
+      setIsGamechangersLoading(false);
+    }
+  };
+
   // Handle Photo selection with automatic compression for storage sake
   const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -94,11 +143,11 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
     setIsCompressing(true);
 
     try {
-      // Compress image for storage efficiency: max 1000px, quality 0.72 JPEG
       const compressedDataUrl = await compressImageToDataUrl(file, 1000, 0.72);
       setImagePreview(compressedDataUrl);
+      setVideoPreview(null);
+      setVideoSizeMb(null);
 
-      // Estimate compressed size in KB
       const approxBytes = Math.round((compressedDataUrl.length * 3) / 4);
       setImageSizeKb(Math.round(approxBytes / 1024));
     } catch (cErr: any) {
@@ -112,6 +161,49 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
   const handleRemovePhoto = () => {
     setImagePreview(null);
     setImageSizeKb(null);
+    if (!videoPreview) setMediaAttachmentType('none');
+  };
+
+  // Handle Video selection (MP4, WebM, MOV up to 35MB)
+  const handleVideoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setError(null);
+
+    if (!file.type.startsWith('video/')) {
+      setError('Please select a valid video file (MP4, WebM, or MOV).');
+      return;
+    }
+
+    const sizeMb = file.size / (1024 * 1024);
+    if (sizeMb > 35) {
+      setError('Video file size exceeds maximum limit of 35MB. Please choose a shorter clip.');
+      return;
+    }
+
+    setVideoSizeMb(Number(sizeMb.toFixed(1)));
+    setIsVideoUploading(true);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const videoData = event.target?.result as string;
+      setVideoPreview(videoData);
+      setImagePreview(null);
+      setImageSizeKb(null);
+      setIsVideoUploading(false);
+    };
+    reader.onerror = () => {
+      setError('Failed to read video file.');
+      setIsVideoUploading(false);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveVideo = () => {
+    setVideoPreview(null);
+    setVideoSizeMb(null);
+    if (!imagePreview) setMediaAttachmentType('none');
   };
 
   // Create new post
@@ -131,13 +223,31 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
 
       const userAvatar = user?.profileImageUrl || user?.avatarUrl;
 
-      // 1. Try backend endpoint
+      // 1. Try uploading video if attached
+      let attachedVideoUrl: string | undefined = undefined;
+      if (videoPreview) {
+        try {
+          const videoRes = await api.uploadVideo(videoPreview);
+          if (videoRes && videoRes.videoUrl) {
+            attachedVideoUrl = videoRes.videoUrl;
+          }
+        } catch (vErr) {
+          console.warn('[ConnectPage] Video upload note, storing directly:', vErr);
+          attachedVideoUrl = videoPreview;
+        }
+      }
+
+      const mediaType: 'image' | 'video' | undefined = videoPreview ? 'video' : imagePreview ? 'image' : undefined;
+
+      // 2. Try backend endpoint
       try {
         const res = await api.createCommunityPost({
           title: title.trim(),
           content: content.trim(),
           category,
           imageUrl: imagePreview || undefined,
+          videoUrl: attachedVideoUrl || undefined,
+          mediaType,
         });
 
         if (res && res.post) {
@@ -149,7 +259,7 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
         console.warn('[ConnectPage] Backend endpoint note, saving to Firestore:', apiErr);
       }
 
-      // 2. Client-side Firestore persistence (ensures instant availability across environments)
+      // 3. Client-side Firestore persistence (ensures instant availability across environments)
       if (!createdPost && user) {
         const newPostId = 'post_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
         const newPost: CommunityPost = {
@@ -166,6 +276,8 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
           isPinned: false,
           reactions: {},
           ...(imagePreview ? { imageUrl: imagePreview } : {}),
+          ...(attachedVideoUrl ? { videoUrl: attachedVideoUrl } : {}),
+          ...(mediaType ? { mediaType } : {}),
         };
 
         await addCommunityPostToFirestore(newPost);
@@ -181,7 +293,9 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
       setContent('');
       setImagePreview(null);
       setImageSizeKb(null);
-      setShowPhotoSection(false);
+      setVideoPreview(null);
+      setVideoSizeMb(null);
+      setMediaAttachmentType('none');
       onPostCreated();
 
       setTimeout(() => {
@@ -324,26 +438,44 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
             </p>
           </div>
 
-          {isAuthenticated ? (
+          <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+            {/* Gamechangers Button */}
             <button
               onClick={() => {
-                setShowCreateModal(true);
-                setError(null);
-                setSuccessMsg(null);
+                setShowGamechangersModal(true);
+                loadGamechangers();
               }}
-              className="self-start sm:self-auto px-4 py-2.5 rounded-xl bg-[#40281d] text-[#fffdf8] text-xs font-bold hover:bg-[#523325] transition-all flex items-center gap-2 shadow-xs cursor-pointer active:scale-98"
+              className="px-3.5 py-2.5 rounded-xl bg-[#e2a72e] hover:bg-[#d49924] text-[#40281d] text-xs font-extrabold transition-all flex items-center gap-2 shadow-xs cursor-pointer active:scale-98"
+              title="View all registered movement champions and their verified profiles"
             >
-              <PlusCircle className="w-4 h-4 text-[#e2a72e]" />
-              <span>Share Discussion</span>
+              <Users className="w-4 h-4 text-[#40281d]" />
+              <span>Gamechangers</span>
+              <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-[#40281d] text-[#e2a72e]">
+                Roster
+              </span>
             </button>
-          ) : (
-            <button
-              onClick={onNavigateToAuth}
-              className="self-start sm:self-auto px-4 py-2 rounded-xl bg-[#fbf7ed] border border-[#eadfce] text-xs font-bold text-[#40281d] hover:bg-white cursor-pointer shadow-2xs"
-            >
-              Log In to Post & React
-            </button>
-          )}
+
+            {isAuthenticated ? (
+              <button
+                onClick={() => {
+                  setShowCreateModal(true);
+                  setError(null);
+                  setSuccessMsg(null);
+                }}
+                className="px-4 py-2.5 rounded-xl bg-[#40281d] text-[#fffdf8] text-xs font-bold hover:bg-[#523325] transition-all flex items-center gap-2 shadow-xs cursor-pointer active:scale-98"
+              >
+                <PlusCircle className="w-4 h-4 text-[#e2a72e]" />
+                <span>Share Discussion</span>
+              </button>
+            ) : (
+              <button
+                onClick={onNavigateToAuth}
+                className="px-4 py-2 rounded-xl bg-[#fbf7ed] border border-[#eadfce] text-xs font-bold text-[#40281d] hover:bg-white cursor-pointer shadow-2xs"
+              >
+                Log In to Post & React
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -374,6 +506,7 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
               onClick={() => {
                 setShowCreateModal(false);
                 handleRemovePhoto();
+                handleRemoveVideo();
               }}
               className="text-xs text-[#78675e] hover:text-[#40281d] cursor-pointer"
             >
@@ -428,18 +561,30 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
               />
             </div>
 
-            {/* Photo Attachment Section */}
+            {/* Photo & Video Media Attachment Controls */}
             <div className="space-y-3 pt-1">
-              {!showPhotoSection && !imagePreview ? (
-                <button
-                  type="button"
-                  onClick={() => setShowPhotoSection(true)}
-                  className="px-3.5 py-2 rounded-xl bg-[#fbf7ed] border border-[#eadfce] text-xs font-semibold text-[#5c463b] hover:bg-white hover:border-[#e2a72e] flex items-center gap-2 transition-all cursor-pointer shadow-2xs"
-                >
-                  <ImageIcon className="w-3.5 h-3.5 text-[#e2a72e]" />
-                  <span>Attach a Photo (Optional)</span>
-                </button>
-              ) : (
+              {mediaAttachmentType === 'none' && !imagePreview && !videoPreview ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setMediaAttachmentType('photo')}
+                    className="px-3 py-2 rounded-xl bg-[#fbf7ed] border border-[#eadfce] text-xs font-semibold text-[#5c463b] hover:bg-white hover:border-[#e2a72e] flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                  >
+                    <ImageIcon className="w-3.5 h-3.5 text-[#e2a72e]" />
+                    <span>Attach Photo</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setMediaAttachmentType('video')}
+                    className="px-3 py-2 rounded-xl bg-[#fbf7ed] border border-[#eadfce] text-xs font-semibold text-[#5c463b] hover:bg-white hover:border-[#46705b] flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                  >
+                    <Video className="w-3.5 h-3.5 text-[#46705b]" />
+                    <span>Attach Video Clip</span>
+                  </button>
+                </div>
+              ) : mediaAttachmentType === 'photo' || imagePreview ? (
+                /* Photo Attachment Box */
                 <div className="p-4 rounded-2xl bg-[#FFFDF8] border-2 border-[#eadfce] space-y-3 animate-fadeIn">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-[#40281d] flex items-center gap-1.5">
@@ -449,12 +594,12 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
                     <button
                       type="button"
                       onClick={() => {
-                        setShowPhotoSection(false);
                         handleRemovePhoto();
+                        setMediaAttachmentType('none');
                       }}
                       className="text-xs text-[#78675e] hover:text-[#40281d] cursor-pointer"
                     >
-                      Remove
+                      Remove Photo
                     </button>
                   </div>
 
@@ -488,6 +633,65 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
                     </div>
                   )}
                 </div>
+              ) : (
+                /* Video Attachment Box */
+                <div className="p-4 rounded-2xl bg-[#FFFDF8] border-2 border-[#46705b]/40 space-y-3 animate-fadeIn">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-[#40281d] flex items-center gap-1.5">
+                      <Video className="w-4 h-4 text-[#46705b]" />
+                      <span>Attach Video Clip to Discussion</span>
+                      {videoSizeMb && (
+                        <span className="text-[10px] font-bold text-[#46705b] bg-[#eaf2ec] px-2 py-0.5 rounded-full">
+                          {videoSizeMb} MB
+                        </span>
+                      )}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleRemoveVideo();
+                        setMediaAttachmentType('none');
+                      }}
+                      className="text-xs text-[#78675e] hover:text-[#40281d] cursor-pointer"
+                    >
+                      Remove Video
+                    </button>
+                  </div>
+
+                  <input
+                    type="file"
+                    accept="video/mp4,video/webm,video/quicktime,video/ogg,video/x-m4v"
+                    onChange={handleVideoSelect}
+                    className="block w-full text-xs text-[#78675e] file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-[#46705b] file:text-[#fffdf8] hover:file:bg-[#365646] file:cursor-pointer"
+                  />
+                  <p className="text-[10px] text-[#78675e]">
+                    Accepts MP4, WebM, MOV clips up to 35MB.
+                  </p>
+
+                  {isVideoUploading && (
+                    <p className="text-[11px] text-[#46705b] animate-pulse">
+                      Processing video clip for playback...
+                    </p>
+                  )}
+
+                  {videoPreview && (
+                    <div className="relative mt-2 rounded-xl overflow-hidden bg-black max-w-sm">
+                      <video
+                        controls
+                        playsInline
+                        src={videoPreview}
+                        className="w-full max-h-48 object-contain"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleRemoveVideo}
+                        className="absolute top-2 right-2 p-1 rounded-full bg-black/80 text-white hover:bg-red-700 transition-colors shadow-xs"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
 
@@ -497,6 +701,7 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
                 onClick={() => {
                   setShowCreateModal(false);
                   handleRemovePhoto();
+                  handleRemoveVideo();
                 }}
                 className="px-3.5 py-2 rounded-xl text-xs font-semibold text-[#78675e] hover:text-[#40281d] cursor-pointer"
               >
@@ -504,7 +709,7 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
               </button>
               <button
                 type="submit"
-                disabled={isLoading || isCompressing}
+                disabled={isLoading || isCompressing || isVideoUploading}
                 className="px-4 py-2 rounded-xl bg-[#40281d] text-[#fffdf8] text-xs font-bold hover:bg-[#523325] disabled:opacity-50 transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
               >
                 <Send className="w-3.5 h-3.5 text-[#e2a72e]" />
@@ -686,6 +891,25 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
                   {post.content}
                 </p>
 
+                {/* Attached Video Display */}
+                {post.videoUrl && (
+                  <div className="mb-3">
+                    <div className="rounded-2xl overflow-hidden border border-[#eadfce] bg-black shadow-xs">
+                      <video
+                        controls
+                        playsInline
+                        preload="metadata"
+                        src={post.videoUrl}
+                        className="w-full max-h-80 object-contain mx-auto"
+                      />
+                    </div>
+                    <span className="text-[10px] text-[#78675e] mt-1 flex items-center gap-1">
+                      <Video className="w-3 h-3 text-[#46705b]" />
+                      <span>Verified Movement Video Clip</span>
+                    </span>
+                  </div>
+                )}
+
                 {/* Attached Photo Display */}
                 {post.imageUrl && (
                   <div className="mb-3">
@@ -806,6 +1030,211 @@ export const ConnectPage: React.FC<ConnectPageProps> = ({
           submitterName={modalImagePost.userName}
           actionType={modalImagePost.category}
         />
+      )}
+
+      {/* Gamechangers Directory Modal */}
+      {showGamechangersModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn"
+          onClick={() => setShowGamechangersModal(false)}
+        >
+          <div
+            className="app-card w-full max-w-2xl max-h-[85vh] flex flex-col border border-[#eadfce] shadow-2xl bg-[#fffdf8] overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 border-b border-[#eadfce] bg-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-2xl bg-[#e2a72e]/20 text-[#40281d] flex items-center justify-center border border-[#e2a72e]/40">
+                  <Users className="w-5 h-5 text-[#8b6508]" />
+                </div>
+                <div>
+                  <h3 className="font-serif-heading text-lg font-bold text-[#40281d] flex items-center gap-2">
+                    <span>Movement Gamechangers</span>
+                    <span className="text-[10px] font-extrabold bg-[#40281d] text-[#e2a72e] px-2 py-0.5 rounded-full">
+                      {gamechangers.length} registered
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-[#78675e]">
+                    Click any member to inspect their verified profile, badges, and stats
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowGamechangersModal(false)}
+                className="p-1.5 rounded-xl text-[#78675e] hover:text-[#40281d] hover:bg-[#40281d]/5 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Search & Filter Toolbar */}
+            <div className="p-3 sm:px-5 sm:py-3 bg-[#fbf7ed] border-b border-[#eadfce] space-y-2.5">
+              <div className="relative">
+                <Search className="w-4 h-4 text-[#78675e] absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  value={gamechangerSearch}
+                  onChange={(e) => setGamechangerSearch(e.target.value)}
+                  placeholder="Search registered members by name or role..."
+                  className="w-full pl-9 pr-3 py-2 rounded-xl bg-white border border-[#eadfce] text-xs text-[#40281d] focus:border-[#e2a72e] focus:outline-hidden"
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                {(['ALL', 'TOP_ADMIN', 'ADMIN', 'REGISTERED_USER'] as const).map((r) => {
+                  const label =
+                    r === 'ALL'
+                      ? 'All Members'
+                      : r === 'TOP_ADMIN'
+                      ? 'Top Admin'
+                      : r === 'ADMIN'
+                      ? 'Admins'
+                      : 'Members';
+                  const isActive = gamechangerRoleFilter === r;
+                  return (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => setGamechangerRoleFilter(r)}
+                      className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                        isActive
+                          ? 'bg-[#40281d] text-[#fffdf8] shadow-2xs'
+                          : 'bg-white border border-[#eadfce] text-[#78675e] hover:text-[#40281d]'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Gamechangers Roster List */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-2.5 divide-y divide-[#eadfce]/40">
+              {isGamechangersLoading ? (
+                <div className="py-12 text-center text-xs text-[#78675e]">Loading registered gamechangers...</div>
+              ) : gamechangers.length === 0 ? (
+                <div className="py-12 text-center text-xs text-[#78675e]">
+                  No registered members found yet.
+                </div>
+              ) : (
+                (() => {
+                  const filtered = gamechangers.filter((u) => {
+                    const matchesSearch =
+                      !gamechangerSearch.trim() ||
+                      (u.fullName || '').toLowerCase().includes(gamechangerSearch.toLowerCase()) ||
+                      (u.email || '').toLowerCase().includes(gamechangerSearch.toLowerCase());
+                    const matchesRole =
+                      gamechangerRoleFilter === 'ALL' || u.role === gamechangerRoleFilter;
+                    return matchesSearch && matchesRole;
+                  });
+
+                  if (filtered.length === 0) {
+                    return (
+                      <div className="py-8 text-center text-xs text-[#78675e]">
+                        No members matching your search criteria.
+                      </div>
+                    );
+                  }
+
+                  return filtered.map((member) => {
+                    const { earned: unlockedBadges } = getUserBadges(member);
+
+                    return (
+                      <div
+                        key={member.id}
+                        onClick={() => {
+                          setSelectedProfileUser({ id: member.id, user: member });
+                        }}
+                        className="pt-2.5 first:pt-0 p-3 rounded-2xl bg-white hover:bg-[#fff9ea] border border-[#eadfce]/80 hover:border-[#e2a72e] transition-all cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs group"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          {/* Member Avatar */}
+                          {member.profileImageUrl || member.avatarUrl ? (
+                            <img
+                              src={member.profileImageUrl || member.avatarUrl}
+                              alt={member.fullName || 'Member'}
+                              className="w-11 h-11 rounded-full object-cover border-2 border-[#e2a72e]/50 shrink-0 group-hover:scale-105 transition-transform"
+                            />
+                          ) : (
+                            <div className="w-11 h-11 rounded-full bg-[#40281d] text-[#e2a72e] font-bold text-sm flex items-center justify-center border-2 border-[#e2a72e]/30 shrink-0 group-hover:scale-105 transition-transform">
+                              {(member.fullName || 'M').charAt(0).toUpperCase()}
+                            </div>
+                          )}
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <h4 className="text-xs font-bold text-[#40281d] group-hover:text-[#8b6508] transition-colors truncate">
+                                {member.fullName || 'Movement Champion'}
+                              </h4>
+
+                              {member.role === 'TOP_ADMIN' && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-[#D4AF37]/20 text-[#8b6508] text-[9px] font-extrabold border border-[#D4AF37]/40">
+                                  <Crown className="w-2.5 h-2.5 text-[#8b6508]" />
+                                  <span>Top Admin</span>
+                                </span>
+                              )}
+                              {member.role === 'ADMIN' && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-[#dce8d8] text-[#365646] text-[9px] font-extrabold border border-[#c4d9bf]">
+                                  <ShieldCheck className="w-2.5 h-2.5 text-[#46705b]" />
+                                  <span>Admin</span>
+                                </span>
+                              )}
+                              {member.role === 'REGISTERED_USER' && (
+                                <span className="text-[9px] font-bold text-[#78675e] bg-[#fbf7ed] px-1.5 py-0.2 rounded-full border border-[#eadfce]">
+                                  Member
+                                </span>
+                              )}
+                            </div>
+
+                            {member.bio ? (
+                              <p className="text-[11px] text-[#78675e] truncate max-w-sm mt-0.5">
+                                {member.bio}
+                              </p>
+                            ) : (
+                              <p className="text-[10px] text-[#9e8f85] italic mt-0.5">
+                                Verified movement participant
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Impact & Badges Summary Pill */}
+                        <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-[#fbf7ed] border border-[#eadfce] text-[11px] font-bold text-[#5c463b]">
+                            <Sparkles className="w-3.5 h-3.5 text-[#e2a72e]" />
+                            <span>{unlockedBadges.length} Badges</span>
+                          </span>
+
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-[#40281d] text-[#fffdf8] text-[11px] font-extrabold shadow-2xs">
+                            <span>{member.verifiedPoints || 0} pts</span>
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  });
+                })()
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-3 bg-white border-t border-[#eadfce] flex items-center justify-between">
+              <span className="text-[10px] text-[#78675e]">
+                Tap any member card to view their verified stats and badges
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowGamechangersModal(false)}
+                className="px-3.5 py-1.5 rounded-xl bg-[#fbf7ed] border border-[#eadfce] text-xs font-bold text-[#40281d] hover:bg-white cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* User Profile Modal */}

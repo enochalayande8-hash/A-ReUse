@@ -36,8 +36,10 @@ export interface ProofSubmission {
   userEmail: string;
   actionType: ActionType;
   description: string;
-  evidenceUrl: string; // Cloudinary secure delivery or storage URL
+  evidenceUrl: string; // Cloudinary secure delivery, storage URL, or video/image source
   proofImageUrl?: string; // Standard Cloudinary proof image reference
+  videoUrl?: string; // Video proof delivery URL or media data
+  mediaType?: 'image' | 'video'; // Type of media attached as proof
   cloudinaryPublicId?: string; // Cloudinary resource public identifier
   cloudinarySecureUrl?: string; // Signed / secure Cloudinary URL
   submittedAt: string;
@@ -195,10 +197,34 @@ export interface CommunityPost {
   createdAt: string;
   likesCount: number;
   imageUrl?: string;
+  videoUrl?: string;
+  mediaType?: 'image' | 'video';
   isPinned?: boolean;
   pinnedAt?: string;
   pinnedBy?: string;
   reactions?: Record<string, string[]>;
+}
+
+export type NotificationType =
+  | 'ACTION_APPROVED'
+  | 'ACTION_REJECTED'
+  | 'POINTS_AWARDED'
+  | 'BADGE_UNLOCKED'
+  | 'COMMUNITY_POST'
+  | 'NEW_CHALLENGE'
+  | 'SYSTEM_ANNOUNCEMENT';
+
+export interface AppNotification {
+  id: string;
+  userId: string; // Specific user UID or 'ALL' for community broadcasts
+  title: string;
+  message: string;
+  type: NotificationType;
+  read: boolean;
+  createdAt: string;
+  linkTab?: string; // Tab to navigate to ('proof', 'connect', 'rank', 'win', 'challenge')
+  actionLabel?: string;
+  metadata?: Record<string, any>;
 }
 
 export interface LeaderboardEntry {

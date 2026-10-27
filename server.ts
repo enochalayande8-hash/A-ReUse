@@ -98,6 +98,30 @@ async function uploadLogoToCloudinary(
   };
 }
 
+// Upload video securely to Cloudinary (supports MP4, WebM, MOV, OGG)
+async function uploadVideoToCloudinary(
+  videoSource: string,
+  userIdentifier: string
+): Promise<{ videoUrl: string; cloudinaryPublicId: string }> {
+  if (!isCloudinaryConfigured) {
+    throw new Error('Cloudinary storage is not configured on the server. Please set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET.');
+  }
+
+  const uploadRes = await cloudinary.uploader.upload(videoSource, {
+    folder: 'awareness_movement/videos',
+    resource_type: 'video',
+    context: {
+      uploadedBy: userIdentifier,
+      system: 'awareness_global_movement_video',
+    },
+  });
+
+  return {
+    videoUrl: uploadRes.secure_url,
+    cloudinaryPublicId: uploadRes.public_id,
+  };
+}
+
 // Initialize Firebase Admin SDK
 const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || 'a-reuse';
 let adminAuth: ReturnType<typeof getAdminAuth> | null = null;
@@ -262,6 +286,8 @@ interface DbSchema {
     description: string;
     evidenceUrl: string;
     proofImageUrl?: string;
+    videoUrl?: string;
+    mediaType?: 'image' | 'video';
     cloudinaryPublicId?: string;
     cloudinarySecureUrl?: string;
     submittedAt: string;
@@ -335,10 +361,24 @@ interface DbSchema {
     createdAt: string;
     likesCount: number;
     imageUrl?: string;
+    videoUrl?: string;
+    mediaType?: 'image' | 'video';
     isPinned?: boolean;
     pinnedAt?: string;
     pinnedBy?: string;
     reactions?: Record<string, string[]>;
+  }>;
+  notifications: Array<{
+    id: string;
+    userId: string;
+    title: string;
+    message: string;
+    type: string;
+    read: boolean;
+    createdAt: string;
+    linkTab?: string;
+    actionLabel?: string;
+    metadata?: Record<string, any>;
   }>;
   impactSettings: typeof DEFAULT_IMPACT_SETTINGS;
   orgProfile: typeof DEFAULT_ORG_PROFILE;
@@ -347,6 +387,31 @@ interface DbSchema {
   bootstrapCompletedAt?: string;
   bootstrapCompletedBy?: string;
 }
+
+const DEFAULT_NOTIFICATIONS: DbSchema['notifications'] = [
+  {
+    id: 'notif_welcome_system',
+    userId: 'ALL',
+    title: 'Welcome to Awareness Global Movement! 🌍',
+    message: 'Join thousands eliminating single-use plastic bags. Submit verified photo or video proof to earn badges and climb the global ranks!',
+    type: 'SYSTEM_ANNOUNCEMENT',
+    read: false,
+    createdAt: new Date().toISOString(),
+    linkTab: 'proof',
+    actionLabel: 'Submit Proof',
+  },
+  {
+    id: 'notif_gamechangers_intro',
+    userId: 'ALL',
+    title: 'New "Gamechangers" Directory in Connect ✨',
+    message: 'Explore active registered movement members in Connect! Tap any champion to view their bio, verified badges, and plastic-reduction metrics.',
+    type: 'COMMUNITY_POST',
+    read: false,
+    createdAt: new Date().toISOString(),
+    linkTab: 'connect',
+    actionLabel: 'Meet Gamechangers',
+  },
+];
 
 function loadDatabase(): DbSchema {
   if (fs.existsSync(DB_FILE)) {
@@ -364,6 +429,9 @@ function loadDatabase(): DbSchema {
       if (!data.admins) data.admins = [];
       if (!data.auditLogs) data.auditLogs = [];
       if (!data.communityPosts) data.communityPosts = [];
+      if (!data.notifications || data.notifications.length === 0) {
+        data.notifications = [...DEFAULT_NOTIFICATIONS];
+      }
       return data;
     } catch (e) {
       console.error('Error reading db.json, initializing fresh database:', e);
@@ -379,6 +447,7 @@ function loadDatabase(): DbSchema {
     admins: [],
     auditLogs: [],
     communityPosts: [],
+    notifications: [...DEFAULT_NOTIFICATIONS],
     impactSettings: { ...DEFAULT_IMPACT_SETTINGS },
     orgProfile: { ...DEFAULT_ORG_PROFILE },
     paymentSettings: { ...DEFAULT_PAYMENT_SETTINGS },
@@ -393,6 +462,37 @@ function saveDatabase(db: DbSchema) {
 }
 
 let db = loadDatabase();
+
+// Dispatches in-app notification (for mobile/desktop synchronization)
+function dispatchNotification(
+  userId: string,
+  title: string,
+  message: string,
+  type: string = 'SYSTEM_ANNOUNCEMENT',
+  linkTab?: string,
+  actionLabel?: string,
+  metadata?: Record<string, any>
+) {
+  const notif = {
+    id: 'notif_' + crypto.randomUUID(),
+    userId,
+    title,
+    message,
+    type,
+    read: false,
+    createdAt: new Date().toISOString(),
+    linkTab,
+    actionLabel,
+    metadata,
+  };
+  if (!db.notifications) db.notifications = [];
+  db.notifications.unshift(notif);
+  if (db.notifications.length > 500) {
+    db.notifications = db.notifications.slice(0, 500);
+  }
+  saveDatabase(db);
+  return notif;
+}
 
 function logAudit(adminId: string, adminEmail: string, action: string, details: string, targetId?: string, targetType?: string) {
   const auditEntry = {
@@ -421,9 +521,9 @@ function sanitizeUser(user: DbSchema['users'][0]) {
 async function startServer() {
   const app = express();
 
-  // High payload limit for proof photos
-  app.use(express.json({ limit: '15mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '15mb' }));
+  // High payload limit for proof photos and video clips
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
   // Request logger for API calls
   app.use((req, res, next) => {
@@ -1115,6 +1215,65 @@ async function startServer() {
     }
   });
 
+  // Dedicated Video Upload Endpoint (Authenticated Users Only)
+  app.post('/api/upload/video', requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user as DbSchema['users'][0];
+      const { video } = req.body;
+
+      if (!video || typeof video !== 'string') {
+        return res.status(400).json({ error: 'Video data is required.' });
+      }
+
+      // Check format
+      const isDataVideo = video.startsWith('data:video/');
+      const isHttpUrl = video.startsWith('http://') || video.startsWith('https://');
+
+      if (!isDataVideo && !isHttpUrl) {
+        return res.status(400).json({ error: 'Invalid video format. Must be a valid video Data URI or URL (MP4, WebM, MOV).' });
+      }
+
+      // Size check for data URI (~35MB limit)
+      if (isDataVideo) {
+        const approxSizeBytes = (video.length * 3) / 4;
+        const MAX_SIZE = 35 * 1024 * 1024;
+        if (approxSizeBytes > MAX_SIZE) {
+          return res.status(413).json({ error: 'Video file size exceeds maximum limit of 35MB. Please upload a shorter clip.' });
+        }
+      }
+
+      if (isCloudinaryConfigured && isDataVideo) {
+        try {
+          const uploadRes = await uploadVideoToCloudinary(video, user.id);
+          return res.status(200).json({
+            success: true,
+            videoUrl: uploadRes.videoUrl,
+            cloudinaryPublicId: uploadRes.cloudinaryPublicId,
+            message: 'Video uploaded successfully to Cloudinary.',
+          });
+        } catch (cErr: any) {
+          console.warn('[CLOUDINARY VIDEO NOTE]:', cErr?.message);
+          // If Cloudinary video plan limit or error, deliver direct video URI fallback
+          return res.status(200).json({
+            success: true,
+            videoUrl: video,
+            message: 'Video prepared for movement verification.',
+          });
+        }
+      }
+
+      // Standalone / fallback delivery
+      return res.status(200).json({
+        success: true,
+        videoUrl: video,
+        message: 'Video attached successfully.',
+      });
+    } catch (err: any) {
+      console.error('[VIDEO UPLOAD ERROR]:', err);
+      return res.status(500).json({ error: err.message || 'Failed to upload video.' });
+    }
+  });
+
   // Secure Cloudinary Proof Image Access (Authorized Submitter or Admins Only)
   app.get('/api/proof/secure-image/:submissionId', requireAuth, (req, res) => {
     try {
@@ -1143,7 +1302,7 @@ async function startServer() {
           deliveredUrl = cloudinary.url(submission.cloudinaryPublicId, {
             sign_url: true,
             secure: true,
-            resource_type: 'image',
+            resource_type: submission.mediaType === 'video' ? 'video' : 'image',
           });
         } catch {
           deliveredUrl = submission.proofImageUrl || submission.evidenceUrl;
@@ -1169,10 +1328,10 @@ async function startServer() {
   app.post('/api/proof/submit', requireAuth, async (req, res) => {
     try {
       const user = (req as any).user as DbSchema['users'][0];
-      const { actionType, description, evidenceUrl, proofImageUrl, cloudinaryPublicId } = req.body;
+      const { actionType, description, evidenceUrl, proofImageUrl, videoUrl, mediaType, cloudinaryPublicId } = req.body;
 
-      if (!actionType || !description || (!evidenceUrl && !proofImageUrl)) {
-        return res.status(400).json({ error: 'Action type, description, and evidence photo are required.' });
+      if (!actionType || !description || (!evidenceUrl && !proofImageUrl && !videoUrl)) {
+        return res.status(400).json({ error: 'Action type, description, and evidence photo/video are required.' });
       }
 
       const validActionTypes = ['USED_REUSABLE_BAG', 'REFUSED_SINGLE_USE_BAG', 'OTHER_ENVIRONMENTAL_ACTION'];
@@ -1180,31 +1339,45 @@ async function startServer() {
         return res.status(400).json({ error: 'Invalid action type selected.' });
       }
 
-      let finalEvidenceUrl = evidenceUrl || proofImageUrl;
-      let finalProofImageUrl = proofImageUrl || evidenceUrl;
+      const resolvedMediaType: 'image' | 'video' = mediaType || (videoUrl || (evidenceUrl && evidenceUrl.startsWith('data:video/')) ? 'video' : 'image');
+      let finalEvidenceUrl = videoUrl || evidenceUrl || proofImageUrl;
+      let finalProofImageUrl = proofImageUrl || (resolvedMediaType === 'image' ? evidenceUrl : undefined);
+      let finalVideoUrl = videoUrl || (resolvedMediaType === 'video' ? evidenceUrl : undefined);
       let finalCloudinaryPublicId = cloudinaryPublicId;
 
       // If the incoming image is a base64 Data URI, upload to Cloudinary on the server
-      if (finalEvidenceUrl && finalEvidenceUrl.startsWith('data:image/')) {
+      if (resolvedMediaType === 'image' && finalEvidenceUrl && finalEvidenceUrl.startsWith('data:image/')) {
         const mimeMatch = finalEvidenceUrl.match(/^data:image\/(jpeg|jpg|png|webp|gif);base64,/i);
         if (!mimeMatch) {
           return res.status(400).json({ error: 'Unsupported image type. Only JPEG, PNG, WEBP, and GIF images are permitted.' });
         }
 
         const approxSizeBytes = (finalEvidenceUrl.length * 3) / 4;
-        if (approxSizeBytes > 10 * 1024 * 1024) {
-          return res.status(413).json({ error: 'Image file size exceeds the maximum limit of 10MB.' });
+        if (approxSizeBytes > 15 * 1024 * 1024) {
+          return res.status(413).json({ error: 'Image file size exceeds the maximum limit of 15MB.' });
         }
 
         if (isCloudinaryConfigured) {
-          const uploadRes = await uploadProofToCloudinary(finalEvidenceUrl, user.id);
-          finalEvidenceUrl = uploadRes.proofImageUrl;
-          finalProofImageUrl = uploadRes.proofImageUrl;
-          finalCloudinaryPublicId = uploadRes.cloudinaryPublicId;
-        } else {
-          return res.status(503).json({
-            error: 'Cloudinary storage service is not configured on the server. Please set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET in the server environment.',
-          });
+          try {
+            const uploadRes = await uploadProofToCloudinary(finalEvidenceUrl, user.id);
+            finalEvidenceUrl = uploadRes.proofImageUrl;
+            finalProofImageUrl = uploadRes.proofImageUrl;
+            finalCloudinaryPublicId = uploadRes.cloudinaryPublicId;
+          } catch (cErr: any) {
+            console.warn('[CLOUDINARY IMAGE NOTE]:', cErr?.message);
+          }
+        }
+      } else if (resolvedMediaType === 'video' && finalEvidenceUrl && finalEvidenceUrl.startsWith('data:video/')) {
+        // Upload video to Cloudinary if available
+        if (isCloudinaryConfigured) {
+          try {
+            const uploadRes = await uploadVideoToCloudinary(finalEvidenceUrl, user.id);
+            finalEvidenceUrl = uploadRes.videoUrl;
+            finalVideoUrl = uploadRes.videoUrl;
+            finalCloudinaryPublicId = uploadRes.cloudinaryPublicId;
+          } catch (vErr: any) {
+            console.warn('[CLOUDINARY VIDEO NOTE]:', vErr?.message);
+          }
         }
       }
 
@@ -1217,12 +1390,25 @@ async function startServer() {
         description: String(description).trim(),
         evidenceUrl: finalEvidenceUrl,
         proofImageUrl: finalProofImageUrl,
+        videoUrl: finalVideoUrl,
+        mediaType: resolvedMediaType,
         cloudinaryPublicId: finalCloudinaryPublicId,
         submittedAt: new Date().toISOString(),
         status: 'PENDING', // Strict: must wait for admin verification
       };
 
       db.submissions.unshift(newSubmission);
+
+      // Dispatch real-time user notification
+      dispatchNotification(
+        user.id,
+        'Action Proof Submitted 📋',
+        `Your verified ${resolvedMediaType === 'video' ? 'video' : 'photo'} proof has been submitted to the review queue. Movement administrators will review it shortly.`,
+        'SYSTEM_ANNOUNCEMENT',
+        'proof',
+        'View Submissions'
+      );
+
       saveDatabase(db);
 
       res.status(201).json({
@@ -1353,6 +1539,16 @@ async function startServer() {
           submission.id,
           'SUBMISSION'
         );
+
+        // Dispatch notification to submitter
+        dispatchNotification(
+          targetUser.id,
+          'Action Proof Approved! 🎉',
+          `Your environmental action was verified! +${points} points awarded. ${bagsAvoided} single-use bags avoided. Keep leading the movement!`,
+          'ACTION_APPROVED',
+          'rank',
+          'Check Standings'
+        );
       } else {
         // REJECTED
         submission.pointsAwarded = 0;
@@ -1367,6 +1563,16 @@ async function startServer() {
           `Rejected proof #${submission.id} for user ${targetUser.email}. Note: ${submission.reviewNote || 'None'}`,
           submission.id,
           'SUBMISSION'
+        );
+
+        // Dispatch feedback notification to submitter
+        dispatchNotification(
+          targetUser.id,
+          'Submission Review Notice ⚠️',
+          `Your proof submission was reviewed: ${submission.reviewNote || 'Evidence was unclear or missing reusable bag usage.'}`,
+          'ACTION_REJECTED',
+          'proof',
+          'Submit New Proof'
         );
       }
 
@@ -2115,11 +2321,13 @@ async function startServer() {
 
   app.post('/api/community/posts', requireAuth, (req, res) => {
     const user = (req as any).user as DbSchema['users'][0];
-    const { title, content, category, imageUrl } = req.body;
+    const { title, content, category, imageUrl, videoUrl, mediaType } = req.body;
 
     if (!title || !content) {
       return res.status(400).json({ error: 'Title and content are required.' });
     }
+
+    const resolvedMediaType = mediaType || (videoUrl ? 'video' : imageUrl ? 'image' : undefined);
 
     const newPost: DbSchema['communityPosts'][0] = {
       id: 'post_' + crypto.randomUUID(),
@@ -2135,9 +2343,22 @@ async function startServer() {
       isPinned: false,
       reactions: {},
       ...(imageUrl ? { imageUrl } : {}),
+      ...(videoUrl ? { videoUrl } : {}),
+      mediaType: resolvedMediaType,
     };
 
     db.communityPosts.unshift(newPost);
+
+    // Broadcast community activity notification to other movement members
+    dispatchNotification(
+      'ALL',
+      `New Discussion: "${newPost.title}" 💬`,
+      `${user.fullName} shared a new movement ${newPost.category.toLowerCase()}${videoUrl ? ' with video' : ''}. Join the conversation!`,
+      'COMMUNITY_POST',
+      'connect',
+      'View Post'
+    );
+
     saveDatabase(db);
     res.status(201).json({ post: newPost, message: 'Post shared to the movement!' });
   });
@@ -2219,6 +2440,82 @@ async function startServer() {
     );
     saveDatabase(db);
     res.json({ success: true, message: 'Message removed from the community feed.' });
+  });
+
+  // Public directory of registered movement gamechangers for the Connect section
+  app.get('/api/community/gamechangers', (req, res) => {
+    const gamechangers = db.users
+      .filter(u => u.accountStatus !== 'SUSPENDED')
+      .map(u => ({
+        id: u.id,
+        fullName: u.fullName,
+        role: u.role,
+        profileImageUrl: u.profileImageUrl || u.avatarUrl,
+        avatarUrl: u.avatarUrl,
+        bio: u.bio || '',
+        createdAt: u.createdAt,
+        verifiedPoints: u.verifiedPoints || 0,
+        verifiedActionsCount: u.verifiedActionsCount || 0,
+        verifiedReusableBagUses: u.verifiedReusableBagUses || 0,
+        verifiedBagsAvoided: u.verifiedBagsAvoided || 0,
+        verifiedCo2eAvoidedGramsMin: u.verifiedCo2eAvoidedGramsMin || 0,
+        verifiedCo2eAvoidedGramsMax: u.verifiedCo2eAvoidedGramsMax || 0,
+      }))
+      .sort((a, b) => {
+        if (a.role === 'TOP_ADMIN' && b.role !== 'TOP_ADMIN') return -1;
+        if (a.role !== 'TOP_ADMIN' && b.role === 'TOP_ADMIN') return 1;
+        if (a.role === 'ADMIN' && b.role === 'REGISTERED_USER') return -1;
+        if (a.role === 'REGISTERED_USER' && b.role === 'ADMIN') return 1;
+        return (b.verifiedPoints || 0) - (a.verifiedPoints || 0);
+      });
+
+    res.json({ gamechangers });
+  });
+
+  // ----------------------------------------------------
+  // NOTIFICATIONS (USER & COMMUNITY ACTIVITY)
+  // ----------------------------------------------------
+
+  // Get notifications for current user (plus global broadcast notifications)
+  app.get('/api/notifications', async (req, res) => {
+    const authUser = await getAuthUser(req);
+    const userId = authUser?.id || '';
+
+    const list = (db.notifications || []).filter(
+      n => n.userId === 'ALL' || (userId && n.userId === userId)
+    );
+
+    // Sort by createdAt descending
+    const sorted = [...list].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+
+    res.json({ notifications: sorted });
+  });
+
+  // Mark single notification as read
+  app.post('/api/notifications/:id/read', requireAuth, (req, res) => {
+    const { id } = req.params;
+    const notif = (db.notifications || []).find(n => n.id === id);
+    if (notif) {
+      notif.read = true;
+      saveDatabase(db);
+    }
+    res.json({ success: true, message: 'Notification marked as read.' });
+  });
+
+  // Mark all notifications as read for current user
+  app.post('/api/notifications/read-all', requireAuth, (req, res) => {
+    const user = (req as any).user as DbSchema['users'][0];
+    if (db.notifications) {
+      db.notifications.forEach(n => {
+        if (n.userId === user.id || n.userId === 'ALL') {
+          n.read = true;
+        }
+      });
+      saveDatabase(db);
+    }
+    res.json({ success: true, message: 'All notifications marked as read.' });
   });
 
   // Health check

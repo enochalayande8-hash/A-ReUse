@@ -15,6 +15,10 @@ import {
   Image as ImageIcon,
   ShieldAlert,
   ArrowRight,
+  Video,
+  Film,
+  X,
+  Play,
 } from 'lucide-react';
 
 interface ProofPageProps {
@@ -34,8 +38,11 @@ export const ProofPage: React.FC<ProofPageProps> = ({
   // Form State
   const [actionType, setActionType] = useState('USED_REUSABLE_BAG');
   const [description, setDescription] = useState('');
+  const [evidenceType, setEvidenceType] = useState<'image' | 'video'>('image');
   const [evidenceUrl, setEvidenceUrl] = useState('');
   const [filePreview, setFilePreview] = useState<string | null>(null);
+  const [videoPreview, setVideoPreview] = useState<string | null>(null);
+  const [videoSizeMb, setVideoSizeMb] = useState<number | null>(null);
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -80,7 +87,7 @@ export const ProofPage: React.FC<ProofPageProps> = ({
     });
   };
 
-  // File upload handler
+  // Image File upload handler
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -105,6 +112,36 @@ export const ProofPage: React.FC<ProofPageProps> = ({
     }
   };
 
+  // Video File upload handler
+  const handleVideoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('video/')) {
+      setError('Please select a video file (MP4, WebM, MOV).');
+      return;
+    }
+
+    const sizeMb = file.size / (1024 * 1024);
+    if (sizeMb > 35) {
+      setError(`Video file is ${sizeMb.toFixed(1)}MB. Maximum allowed video size is 35MB.`);
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      setVideoPreview(base64);
+      setEvidenceUrl(base64);
+      setVideoSizeMb(Math.round(sizeMb * 10) / 10);
+      setError(null);
+    };
+    reader.onerror = () => {
+      setError('Failed to process video file.');
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isAuthenticated || !user) {
@@ -117,8 +154,13 @@ export const ProofPage: React.FC<ProofPageProps> = ({
       return;
     }
 
-    if (!evidenceUrl.trim() && !filePreview) {
+    if (evidenceType === 'image' && !evidenceUrl.trim() && !filePreview) {
       setError('Please upload a photo or provide an evidence image URL.');
+      return;
+    }
+
+    if (evidenceType === 'video' && !evidenceUrl.trim() && !videoPreview) {
+      setError('Please upload a video clip or provide an evidence video URL.');
       return;
     }
 
@@ -128,23 +170,45 @@ export const ProofPage: React.FC<ProofPageProps> = ({
 
     try {
       let finalEvidenceUrl = evidenceUrl.trim();
+      let finalVideoUrl: string | undefined = undefined;
       let uploadedProofImageUrl: string | undefined = undefined;
       let uploadedCloudinaryPublicId: string | undefined = undefined;
 
-      // If user selected an image file (base64 data URL), try uploading securely to Cloudinary via server API
-      if (filePreview && filePreview.startsWith('data:image/')) {
-        try {
-          const uploadRes = await api.uploadProofImage(filePreview);
-          if (uploadRes && uploadRes.proofImageUrl) {
-            finalEvidenceUrl = uploadRes.proofImageUrl;
-            uploadedProofImageUrl = uploadRes.proofImageUrl;
-            uploadedCloudinaryPublicId = uploadRes.cloudinaryPublicId;
+      if (evidenceType === 'video') {
+        if (videoPreview && videoPreview.startsWith('data:video/')) {
+          try {
+            const upRes = await api.uploadVideo(videoPreview);
+            if (upRes && upRes.videoUrl) {
+              finalVideoUrl = upRes.videoUrl;
+              finalEvidenceUrl = upRes.videoUrl;
+              uploadedCloudinaryPublicId = upRes.cloudinaryPublicId;
+            } else {
+              finalVideoUrl = videoPreview;
+              finalEvidenceUrl = videoPreview;
+            }
+          } catch (uploadErr) {
+            console.warn('[ProofPage] Video upload endpoint fallback to data URI:', uploadErr);
+            finalVideoUrl = videoPreview;
+            finalEvidenceUrl = videoPreview;
           }
-        } catch (uploadErr) {
-          console.warn('[ProofPage] Cloudinary upload endpoint unavailable, storing optimized image directly:', uploadErr);
-          // If server upload endpoint is not available, use the compressed image preview as evidenceUrl
-          finalEvidenceUrl = filePreview;
-          uploadedProofImageUrl = filePreview;
+        } else {
+          finalVideoUrl = finalEvidenceUrl;
+        }
+      } else {
+        // If user selected an image file (base64 data URL), try uploading securely to Cloudinary via server API
+        if (filePreview && filePreview.startsWith('data:image/')) {
+          try {
+            const uploadRes = await api.uploadProofImage(filePreview);
+            if (uploadRes && uploadRes.proofImageUrl) {
+              finalEvidenceUrl = uploadRes.proofImageUrl;
+              uploadedProofImageUrl = uploadRes.proofImageUrl;
+              uploadedCloudinaryPublicId = uploadRes.cloudinaryPublicId;
+            }
+          } catch (uploadErr) {
+            console.warn('[ProofPage] Cloudinary upload endpoint unavailable, storing optimized image directly:', uploadErr);
+            finalEvidenceUrl = filePreview;
+            uploadedProofImageUrl = filePreview;
+          }
         }
       }
 
@@ -158,6 +222,8 @@ export const ProofPage: React.FC<ProofPageProps> = ({
           description: description.trim(),
           evidenceUrl: finalEvidenceUrl,
           proofImageUrl: uploadedProofImageUrl,
+          videoUrl: finalVideoUrl,
+          mediaType: evidenceType,
           cloudinaryPublicId: uploadedCloudinaryPublicId,
         });
 
@@ -182,6 +248,8 @@ export const ProofPage: React.FC<ProofPageProps> = ({
           description: description.trim(),
           evidenceUrl: finalEvidenceUrl,
           proofImageUrl: uploadedProofImageUrl,
+          videoUrl: finalVideoUrl,
+          mediaType: evidenceType,
           cloudinaryPublicId: uploadedCloudinaryPublicId,
           submittedAt: new Date().toISOString(),
           status: 'PENDING',
@@ -199,6 +267,8 @@ export const ProofPage: React.FC<ProofPageProps> = ({
       setDescription('');
       setEvidenceUrl('');
       setFilePreview(null);
+      setVideoPreview(null);
+      setVideoSizeMb(null);
       onSubmissionSuccess();
     } catch (err: any) {
       console.error('[ProofPage] Submission error:', err);
@@ -320,72 +390,184 @@ export const ProofPage: React.FC<ProofPageProps> = ({
                 />
               </div>
 
-              {/* Evidence Upload */}
+              {/* Evidence Upload Type Selector */}
               <div>
                 <label className="block text-xs font-bold text-[#40281d] uppercase tracking-wider mb-1.5">
-                  Photographic Evidence
+                  Action Evidence (Photo or Video)
                 </label>
-
-                {/* File Upload Box */}
-                <div className="border-2 border-dashed border-[#eadfce] rounded-2xl p-4 text-center hover:border-[#e2a72e] transition-colors bg-[#fbf7ed]/60">
-                  <input
-                    type="file"
-                    id="proof-file-input"
-                    accept="image/*"
-                    onChange={handleFileChange}
-                    className="hidden"
-                  />
-                  <label
-                    htmlFor="proof-file-input"
-                    className="cursor-pointer flex flex-col items-center justify-center gap-1"
-                  >
-                    <ImageIcon className="w-5 h-5 text-[#8b6508]" />
-                    <span className="text-xs font-bold text-[#40281d]">
-                      Click to choose photo or drag & drop
-                    </span>
-                    <span className="text-[11px] text-[#78675e]">
-                      PNG, JPG, or WebP up to 5MB
-                    </span>
-                  </label>
-                </div>
-
-                {/* Evidence Image Preview */}
-                {filePreview && (
-                  <div className="mt-3 relative rounded-2xl overflow-hidden border border-[#eadfce] max-h-48 bg-black/5">
-                    <img
-                      src={filePreview}
-                      alt="Proof Preview"
-                      className="w-full h-48 object-cover"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFilePreview(null);
-                        setEvidenceUrl('');
-                      }}
-                      className="absolute top-2 right-2 px-2.5 py-1 rounded-xl bg-[#40281d]/85 text-[#fffdf8] text-[10px] font-bold hover:bg-[#40281d]"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                )}
-
-                {/* Or enter Image URL */}
-                <div className="mt-2.5">
-                  <span className="text-[11px] text-[#78675e] block mb-1">
-                    Or provide direct photo URL:
-                  </span>
-                  <input
-                    type="url"
-                    value={evidenceUrl.startsWith('data:') ? '' : evidenceUrl}
-                    onChange={(e) => {
-                      setEvidenceUrl(e.target.value);
-                      setFilePreview(e.target.value);
+                
+                {/* Mode Selector */}
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEvidenceType('image');
+                      setVideoPreview(null);
+                      setVideoSizeMb(null);
                     }}
-                    placeholder="https://example.com/proof-photo.jpg"
-                    className="w-full px-3 py-2 rounded-xl bg-white border border-[#eadfce] text-xs text-[#40281d] placeholder-[#a69888] focus:border-[#e2a72e] focus:outline-hidden"
-                  />
+                    className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 border transition-all cursor-pointer ${
+                      evidenceType === 'image'
+                        ? 'bg-[#40281d] text-[#fffdf8] border-[#40281d] shadow-xs'
+                        : 'bg-white text-[#5c463b] border-[#eadfce] hover:border-[#40281d]/30'
+                    }`}
+                  >
+                    <ImageIcon className="w-4 h-4 text-[#e2a72e]" />
+                    <span>Photo Proof</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEvidenceType('video');
+                      setFilePreview(null);
+                    }}
+                    className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 border transition-all cursor-pointer ${
+                      evidenceType === 'video'
+                        ? 'bg-[#40281d] text-[#fffdf8] border-[#40281d] shadow-xs'
+                        : 'bg-white text-[#5c463b] border-[#eadfce] hover:border-[#40281d]/30'
+                    }`}
+                  >
+                    <Video className="w-4 h-4 text-[#e2a72e]" />
+                    <span>Video Clip Proof</span>
+                  </button>
                 </div>
+
+                {evidenceType === 'image' ? (
+                  <>
+                    {/* Image File Upload Box */}
+                    <div className="border-2 border-dashed border-[#eadfce] rounded-2xl p-4 text-center hover:border-[#e2a72e] transition-colors bg-[#fbf7ed]/60">
+                      <input
+                        type="file"
+                        id="proof-image-input"
+                        accept="image/*"
+                        onChange={handleFileChange}
+                        className="hidden"
+                      />
+                      <label
+                        htmlFor="proof-image-input"
+                        className="cursor-pointer flex flex-col items-center justify-center gap-1"
+                      >
+                        <ImageIcon className="w-5 h-5 text-[#8b6508]" />
+                        <span className="text-xs font-bold text-[#40281d]">
+                          Click to choose photo or drag & drop
+                        </span>
+                        <span className="text-[11px] text-[#78675e]">
+                          PNG, JPG, or WebP up to 15MB
+                        </span>
+                      </label>
+                    </div>
+
+                    {/* Image Preview */}
+                    {filePreview && (
+                      <div className="mt-3 relative rounded-2xl overflow-hidden border border-[#eadfce] max-h-48 bg-black/5">
+                        <img
+                          src={filePreview}
+                          alt="Proof Preview"
+                          className="w-full h-48 object-cover"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFilePreview(null);
+                            setEvidenceUrl('');
+                          }}
+                          className="absolute top-2 right-2 px-2.5 py-1 rounded-xl bg-[#40281d]/85 text-[#fffdf8] text-[10px] font-bold hover:bg-[#40281d] cursor-pointer"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Or enter Image URL */}
+                    <div className="mt-2.5">
+                      <span className="text-[11px] text-[#78675e] block mb-1">
+                        Or provide direct photo URL:
+                      </span>
+                      <input
+                        type="url"
+                        value={evidenceUrl.startsWith('data:') ? '' : evidenceUrl}
+                        onChange={(e) => {
+                          setEvidenceUrl(e.target.value);
+                          setFilePreview(e.target.value);
+                        }}
+                        placeholder="https://example.com/proof-photo.jpg"
+                        className="w-full px-3 py-2 rounded-xl bg-white border border-[#eadfce] text-xs text-[#40281d] placeholder-[#a69888] focus:border-[#e2a72e] focus:outline-hidden"
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    {/* Video File Upload Box */}
+                    <div className="border-2 border-dashed border-[#eadfce] rounded-2xl p-4 text-center hover:border-[#e2a72e] transition-colors bg-[#fbf7ed]/60">
+                      <input
+                        type="file"
+                        id="proof-video-input"
+                        accept="video/mp4,video/webm,video/quicktime,video/*"
+                        onChange={handleVideoFileChange}
+                        className="hidden"
+                      />
+                      <label
+                        htmlFor="proof-video-input"
+                        className="cursor-pointer flex flex-col items-center justify-center gap-1"
+                      >
+                        <Video className="w-5 h-5 text-[#8b6508]" />
+                        <span className="text-xs font-bold text-[#40281d]">
+                          Click to choose video clip or drag & drop
+                        </span>
+                        <span className="text-[11px] text-[#78675e]">
+                          MP4, WebM, or MOV up to 35MB
+                        </span>
+                      </label>
+                    </div>
+
+                    {/* Video Live Preview Player */}
+                    {videoPreview && (
+                      <div className="mt-3 relative rounded-2xl overflow-hidden border border-[#eadfce] bg-black">
+                        <video
+                          src={videoPreview}
+                          controls
+                          playsInline
+                          className="w-full max-h-52 object-contain"
+                        />
+                        <div className="absolute top-2 right-2 flex items-center gap-1.5">
+                          {videoSizeMb && (
+                            <span className="px-2 py-0.5 rounded-lg bg-black/70 text-white text-[10px] font-bold">
+                              {videoSizeMb} MB
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setVideoPreview(null);
+                              setVideoSizeMb(null);
+                              setEvidenceUrl('');
+                            }}
+                            className="px-2.5 py-1 rounded-xl bg-[#40281d]/85 text-[#fffdf8] text-[10px] font-bold hover:bg-[#40281d] cursor-pointer"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Or enter Video URL */}
+                    <div className="mt-2.5">
+                      <span className="text-[11px] text-[#78675e] block mb-1">
+                        Or provide direct video URL:
+                      </span>
+                      <input
+                        type="url"
+                        value={evidenceUrl.startsWith('data:') ? '' : evidenceUrl}
+                        onChange={(e) => {
+                          setEvidenceUrl(e.target.value);
+                          setVideoPreview(e.target.value);
+                        }}
+                        placeholder="https://example.com/proof-video.mp4"
+                        className="w-full px-3 py-2 rounded-xl bg-white border border-[#eadfce] text-xs text-[#40281d] placeholder-[#a69888] focus:border-[#e2a72e] focus:outline-hidden"
+                      />
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Submit Button */}
@@ -402,7 +584,7 @@ export const ProofPage: React.FC<ProofPageProps> = ({
                 ) : (
                   <>
                     <UploadCloud className="w-4 h-4 text-[#e2a72e]" />
-                    <span>Submit Proof for Admin Review</span>
+                    <span>Submit {evidenceType === 'video' ? 'Video' : 'Photo'} Proof for Admin Review</span>
                   </>
                 )}
               </button>
@@ -429,83 +611,102 @@ export const ProofPage: React.FC<ProofPageProps> = ({
             <EmptyState
               icon={FileText}
               title="No Proof Submissions Yet"
-              description="You have not submitted any environmental action proof. When you use a reusable bag or refuse a plastic bag, submit photographic proof here to have it verified by movement administrators."
+              description="You have not submitted any environmental action proof. When you use a reusable bag or refuse a plastic bag, submit photographic or video proof here to have it verified by movement administrators."
               className="py-10"
             />
           ) : (
             <div className="space-y-3">
-              {safeSubmissions.map((sub) => (
-                <div
-                  key={sub.id}
-                  className="p-4 rounded-2xl bg-[#fffdf8] border border-[#eadfce] shadow-2xs space-y-2"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-serif-heading text-xs font-bold text-[#40281d]">
-                      {sub.actionType.replace(/_/g, ' ')}
-                    </span>
-                    {getStatusBadge(sub.status)}
-                  </div>
+              {safeSubmissions.map((sub) => {
+                const isSubVideo =
+                  sub.mediaType === 'video' ||
+                  !!sub.videoUrl ||
+                  (sub.evidenceUrl && sub.evidenceUrl.startsWith('data:video/')) ||
+                  /\.(mp4|webm|mov)($|\?)/i.test(sub.evidenceUrl || '');
 
-                  <p className="text-xs text-[#5c463b] leading-relaxed">
-                    {sub.description}
-                  </p>
-
-                  {/* Evidence thumbnail preview if available */}
-                  {(sub.proofImageUrl || sub.evidenceUrl) && (
-                    <div className="pt-1 flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setPreviewModalSubmission(sub)}
-                        className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#8b6508] hover:text-[#40281d] underline cursor-pointer"
-                      >
-                        <ImageIcon className="w-3.5 h-3.5 text-[#e2a72e]" />
-                        <span>View Submitted Evidence</span>
-                      </button>
-                      {sub.cloudinaryPublicId && (
-                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-[#dce8d8] text-[#365646] border border-[#c4d9bf]">
-                          Verified Media
-                        </span>
-                      )}
+                return (
+                  <div
+                    key={sub.id}
+                    className="p-4 rounded-2xl bg-[#fffdf8] border border-[#eadfce] shadow-2xs space-y-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-serif-heading text-xs font-bold text-[#40281d]">
+                        {sub.actionType.replace(/_/g, ' ')}
+                      </span>
+                      {getStatusBadge(sub.status)}
                     </div>
-                  )}
 
-                  {/* Review result note & points if processed */}
-                  {sub.status !== 'PENDING' && (
-                    <div className="mt-2 p-2.5 rounded-xl bg-[#fbf7ed] border border-[#eadfce] text-xs space-y-1">
-                      {sub.pointsAwarded !== undefined && (
-                        <div className="flex items-center justify-between font-bold text-[#40281d]">
-                          <span>Awarded Points:</span>
-                          <span className="text-[#8b6508]">+{sub.pointsAwarded} Points</span>
-                        </div>
-                      )}
-                      {sub.reviewNote && (
-                        <div className="text-[11px] text-[#5c463b]">
-                          <span className="font-semibold text-[#40281d]">Review Note: </span>
-                          <span>{sub.reviewNote}</span>
-                        </div>
-                      )}
-                      <div className="text-[10px] text-[#78675e]">
-                        Reviewed by admin on {new Date(sub.reviewedAt || '').toLocaleDateString()}
+                    <p className="text-xs text-[#5c463b] leading-relaxed">
+                      {sub.description}
+                    </p>
+
+                    {/* Evidence thumbnail preview / view button */}
+                    {(sub.proofImageUrl || sub.evidenceUrl || sub.videoUrl) && (
+                      <div className="pt-1 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setPreviewModalSubmission(sub)}
+                          className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#8b6508] hover:text-[#40281d] underline cursor-pointer"
+                        >
+                          {isSubVideo ? (
+                            <Film className="w-3.5 h-3.5 text-[#e2a72e]" />
+                          ) : (
+                            <ImageIcon className="w-3.5 h-3.5 text-[#e2a72e]" />
+                          )}
+                          <span>View Submitted {isSubVideo ? 'Video' : 'Photo'} Evidence</span>
+                        </button>
+                        {isSubVideo && (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#fbf7ed] text-[#8b6508] border border-[#e8ce82]">
+                            <Play className="w-2.5 h-2.5" /> Video Proof
+                          </span>
+                        )}
+                        {sub.cloudinaryPublicId && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-[#dce8d8] text-[#365646] border border-[#c4d9bf]">
+                            Verified Media
+                          </span>
+                        )}
                       </div>
-                    </div>
-                  )}
+                    )}
 
-                  <div className="text-[10px] text-[#78675e] pt-1.5 border-t border-[#eadfce] flex justify-between">
-                    <span>Submitted: {new Date(sub.submittedAt).toLocaleDateString()}</span>
-                    <span>ID: #{sub.id.substring(0, 8)}</span>
+                    {/* Review result note & points if processed */}
+                    {sub.status !== 'PENDING' && (
+                      <div className="mt-2 p-2.5 rounded-xl bg-[#fbf7ed] border border-[#eadfce] text-xs space-y-1">
+                        {sub.pointsAwarded !== undefined && (
+                          <div className="flex items-center justify-between font-bold text-[#40281d]">
+                            <span>Awarded Points:</span>
+                            <span className="text-[#8b6508]">+{sub.pointsAwarded} Points</span>
+                          </div>
+                        )}
+                        {sub.reviewNote && (
+                          <div className="text-[11px] text-[#5c463b]">
+                            <span className="font-semibold text-[#40281d]">Review Note: </span>
+                            <span>{sub.reviewNote}</span>
+                          </div>
+                        )}
+                        <div className="text-[10px] text-[#78675e]">
+                          Reviewed by admin on {new Date(sub.reviewedAt || '').toLocaleDateString()}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="text-[10px] text-[#78675e] pt-1.5 border-t border-[#eadfce] flex justify-between">
+                      <span>Submitted: {new Date(sub.submittedAt).toLocaleDateString()}</span>
+                      <span>ID: #{sub.id.substring(0, 8)}</span>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
       </div>
-      {/* Image Modal Lightbox Popup */}
+      {/* Media Modal Lightbox Popup */}
       {previewModalSubmission && (
         <ImageModal
           isOpen={!!previewModalSubmission}
           onClose={() => setPreviewModalSubmission(null)}
           imageUrl={previewModalSubmission.proofImageUrl || previewModalSubmission.evidenceUrl || ''}
+          videoUrl={previewModalSubmission.videoUrl}
+          mediaType={previewModalSubmission.mediaType}
           title={`Proof Evidence - ${previewModalSubmission.actionType.replace(/_/g, ' ')}`}
           submitterName={previewModalSubmission.userName}
           submitterEmail={previewModalSubmission.userEmail}

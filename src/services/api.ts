@@ -11,6 +11,7 @@ import {
   CommunityPost,
   LeaderboardEntry,
   SystemStats,
+  AppNotification,
 } from '../types';
 
 const TOKEN_KEY = 'agm_auth_token';
@@ -134,11 +135,17 @@ export const api = {
   getTopAdminStatus: () =>
     request<{ topAdminExists: boolean }>('/api/auth/top-admin-status'),
 
-  // Proof Submissions & Cloudinary Uploads
+  // Proof Submissions & Media Uploads
   uploadProofImage: (image: string) =>
     request<{ success: boolean; proofImageUrl: string; cloudinaryPublicId?: string; message?: string }>('/api/proof/upload-image', {
       method: 'POST',
       body: JSON.stringify({ image }),
+    }),
+
+  uploadVideo: (video: string) =>
+    request<{ success: boolean; videoUrl: string; cloudinaryPublicId?: string; message?: string }>('/api/upload/video', {
+      method: 'POST',
+      body: JSON.stringify({ video }),
     }),
 
   submitProof: (payload: {
@@ -146,6 +153,8 @@ export const api = {
     description: string;
     evidenceUrl: string;
     proofImageUrl?: string;
+    videoUrl?: string;
+    mediaType?: 'image' | 'video';
     cloudinaryPublicId?: string;
   }) =>
     request<{ submission: ProofSubmission; message: string }>('/api/proof/submit', {
@@ -289,7 +298,15 @@ export const api = {
   getCommunityPosts: () =>
     request<{ posts: CommunityPost[] }>('/api/community/posts'),
 
-  createCommunityPost: (payload: { title: string; content: string; category: string; imageUrl?: string; userProfileImageUrl?: string }) =>
+  createCommunityPost: (payload: {
+    title: string;
+    content: string;
+    category: string;
+    imageUrl?: string;
+    videoUrl?: string;
+    mediaType?: 'image' | 'video';
+    userProfileImageUrl?: string;
+  }) =>
     request<{ post: CommunityPost; message: string }>('/api/community/posts', {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -304,6 +321,9 @@ export const api = {
   getUserProfile: (id: string) =>
     request<{ user: Partial<User> }>(`/api/users/profile/${id}`),
 
+  getGamechangers: () =>
+    request<{ gamechangers: User[] }>('/api/community/gamechangers'),
+
   pinCommunityPost: (postId: string, isPinned: boolean) =>
     request<{ post: CommunityPost; message: string }>(`/api/community/posts/${postId}/pin`, {
       method: 'POST',
@@ -313,5 +333,19 @@ export const api = {
   deleteCommunityPost: (postId: string) =>
     request<{ success: boolean; message: string }>(`/api/community/posts/${postId}`, {
       method: 'DELETE',
+    }),
+
+  // Notifications
+  getNotifications: () =>
+    request<{ notifications: AppNotification[] }>('/api/notifications'),
+
+  markNotificationRead: (id: string) =>
+    request<{ success: boolean; message: string }>(`/api/notifications/${id}/read`, {
+      method: 'POST',
+    }),
+
+  markAllNotificationsRead: () =>
+    request<{ success: boolean; message: string }>('/api/notifications/read-all', {
+      method: 'POST',
     }),
 };

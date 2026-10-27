@@ -15,6 +15,7 @@ import { ProfilePage } from './pages/ProfilePage';
 import { AdminReviewPage } from './pages/AdminReviewPage';
 import { TopAdminPanel } from './pages/TopAdminPanel';
 import { ChromeAuthReceiver } from './components/ChromeAuthReceiver';
+import { NotificationCenter } from './components/NotificationCenter';
 import { api } from './services/api';
 import {
   fetchChallengesFromFirestore,
@@ -45,6 +46,8 @@ const MainContent: React.FC = () => {
   const [authModalOpen, setAuthModalOpen] = useState<boolean>(false);
   const [authMode, setAuthMode] = useState<'login' | 'signup' | 'forgot-password'>('login');
   const [ownerSetupModalOpen, setOwnerSetupModalOpen] = useState<boolean>(false);
+  const [notificationsModalOpen, setNotificationsModalOpen] = useState<boolean>(false);
+  const [unreadNotificationsCount, setUnreadNotificationsCount] = useState<number>(0);
 
   // Application Data
   const [challenges, setChallenges] = useState<Challenge[]>([]);
@@ -181,6 +184,8 @@ const MainContent: React.FC = () => {
         onSelectTab={setCurrentTab}
         onOpenOwnerSetup={() => setOwnerSetupModalOpen(true)}
         onOpenAuthModal={handleOpenAuth}
+        onOpenNotifications={() => setNotificationsModalOpen(true)}
+        unreadNotificationsCount={unreadNotificationsCount}
         pendingReviewsCount={pendingReviewsCount}
         orgProfile={orgProfile}
       />
@@ -266,6 +271,14 @@ const MainContent: React.FC = () => {
 
       {/* Footer */}
       <Footer orgProfile={orgProfile} />
+
+      {/* Notification Center Drawer */}
+      <NotificationCenter
+        isOpen={notificationsModalOpen}
+        onClose={() => setNotificationsModalOpen(false)}
+        onNavigateTab={setCurrentTab}
+        onUnreadCountChange={setUnreadNotificationsCount}
+      />
 
       {/* Auth Modal */}
       <Modal
